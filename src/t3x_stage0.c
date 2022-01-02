@@ -220,16 +220,16 @@ int	_accumulator_loaded = 0;
 #define CG_ENTER		"2f0e2c4f"
 #define CG_EXIT			"2c5f4e75"
 #define CG_RESOLV		",r"
-#define CG_NEG			""
-#define CG_INV			""
-#define CG_LOGNOT		""
-#define CG_ADD			""
-#define CG_SUB			""
-#define CG_MUL			""
-#define CG_DIV			""
-#define CG_MOD			""
-#define CG_AND			""
-#define CG_OR			""
+#define CG_NEG			"4480"
+#define CG_INV			"4680"
+#define CG_LOGNOT		"220070004a81660270ff"
+#define CG_ADD			"221fd081221fc1419081"
+#define CG_SUB			"221fc1419081"
+#define CG_MUL			"221f23c100b0302023c000b03024203900b03028"
+#define CG_DIV			"221f23c100b0306023c000b03064203900b03068"
+#define CG_MOD			"221f23c100b0306023c000b03064203900b0306c"
+#define CG_AND			"221fc081"
+#define CG_OR			"221f8081"
 #define CG_XOR			""
 #define CG_SHL			""
 #define CG_SHR			""
@@ -282,45 +282,45 @@ void clear(void)
 	_accumulator_loaded = 0;
 }
 
-int hex(int c)
+int hex(int ch)
 {
-	if (isdigit(c))
-		return c-'0';
+	if (isdigit(ch))
+		return ch - '0';
 	else
-		return c-'a'+10;
+		return ch - 'a' + 10;
 }
 
-void emit(int x)
+void emit_byte(byte_t value)
 {
-	_text_buffer[_text_buffer_ptr++] = (byte_t) x;
+	_text_buffer[_text_buffer_ptr++] = value;
 }
 
-void emitl(int x)
+void emit_short(int value)
 {
-	emit((x >> 8) & 0xFF);
-	emit(x & 0xFF);
+	emit_byte((value >> 8) & 0xFF);
+	emit_byte(value & 0xFF);
 }
 
-void emitw(int x)
+void emit_word(word_t value)
 {
-	emit((x >> 24) & 0xFF);
-	emit((x >> 16) & 0xFF);
-	emit((x >> 8) & 0xFF);
-	emit(x & 0xFF);
+	emit_byte((value >> 24) & 0xFF);
+	emit_byte((value >> 16) & 0xFF);
+	emit_byte((value >> 8) & 0xFF);
+	emit_byte(value & 0xFF);
 }
 
-void text_patchl(int a, int x)
+void text_patch_short(int address, word_t value)
 {
-	_text_buffer[a + 0] = (x >> 8) & 0xFF;
-	_text_buffer[a + 1] = x & 0xFF;
+	_text_buffer[address + 0] = (value >> 8) & 0xFF;
+	_text_buffer[address + 1] = value & 0xFF;
 }
 
-void text_patch(int a, int x)
+void text_patch_word(int address, word_t value)
 {
-	_text_buffer[a + 0] = (x >> 24) & 0xFF;
-	_text_buffer[a + 1] = (x >> 16) & 0xFF;
-	_text_buffer[a + 2] = (x >> 8) & 0xFF;
-	_text_buffer[a + 3] = x & 0xFF;
+	_text_buffer[address + 0] = (value >> 24) & 0xFF;
+	_text_buffer[address + 1] = (value >> 16) & 0xFF;
+	_text_buffer[address + 2] = (value >> 8) & 0xFF;
+	_text_buffer[address + 3] = value & 0xFF;
 }
 
 int text_fetch(int a)
@@ -328,30 +328,30 @@ int text_fetch(int a)
 	return _text_buffer[a + 3] | (_text_buffer[a + 2] << 8) | (_text_buffer[a + 1] << 16) | (_text_buffer[a + 0] << 24);
 }
 
-void data(int x)
+void data_byte(byte_t value)
 {
-	_data_buffer[_data_buffer_ptr++] = (byte_t) x;
+	_data_buffer[_data_buffer_ptr++] = value;
 }
 
-void dataw(int x)
+void data_word(word_t value)
 {
-	data((x >> 24) & 255);
-	data((x >> 16) & 255);
-	data((x >> 8) & 255);
-	data(x);
+	data_byte((value >> 24) & 255);
+	data_byte((value >> 16) & 255);
+	data_byte((value >> 8) & 255);
+	data_byte(value);
 }
 
-void data_patch(int a, int x)
+void data_patch(int address, word_t value)
 {
-	_data_buffer[a + 0] = (x >> 24) & 0xFF;
-	_data_buffer[a + 1] = (x >> 16) & 0xFF;
-	_data_buffer[a + 2] = (x >> 8) & 0xFF;
-	_data_buffer[a + 3] = x & 0xFF;
+	_data_buffer[address + 0] = (value >> 24) & 0xFF;
+	_data_buffer[address + 1] = (value >> 16) & 0xFF;
+	_data_buffer[address + 2] = (value >> 8) & 0xFF;
+	_data_buffer[address + 3] = value & 0xFF;
 }
 
-int data_fetch(int a)
+int data_fetch(int address)
 {
-	return _data_buffer[a + 3] | (_data_buffer[a + 2]<<8) | (_data_buffer[a + 1]<<16) | (_data_buffer[a + 0]<<24);
+	return _data_buffer[address + 3] | (_data_buffer[address + 2]<<8) | (_data_buffer[address + 1]<<16) | (_data_buffer[address + 0]<<24);
 }
 
 void tag(int seg)
@@ -368,14 +368,14 @@ void resolve(void)
 {
 	int	i, a, dist;
 
-	dist = DATA_VADDR + (HEADER_SIZE + _text_buffer_ptr) % PAGE_SIZE;
+	dist = DATA_VADDR;
 	for (i=0; i<_relocation_ptr; i++)
 	{
 		if ('t' == _relocation_table[i].seg)
 		{
 			a = text_fetch(_relocation_table[i].addr);
 			a += dist;
-			text_patch(_relocation_table[i].addr, a);
+			text_patch_word(_relocation_table[i].addr, a);
 		}
 		else
 		{
@@ -386,48 +386,48 @@ void resolve(void)
 	}
 }
 
-void generate(char *s, int v)
+void generate(char *code, int value)
 {
 	int	x;
 
-	while (*s)
+	while (*code)
 	{
-		if (',' == *s)
+		if (',' == *code)
 		{
-			if ('b' == s[1])
+			if ('b' == code[1])
 			{
-				emit(v);
+				emit_byte(value);
 			}
-			else if ('w' == s[1])
+			else if ('w' == code[1])
 			{
-				emitw(v);
+				emit_word(value);
 			}
-			else if (s[1] == 'l')
+			else if (code[1] == 'l')
 			{
-				emitl(v);
+				emit_short(value);
 			}
-			else if ('a' == s[1])
+			else if ('a' == code[1])
 			{
-				emitw(v);
+				emit_word(value);
 				tag('t');
 			}
-			else if ('m' == s[1])
+			else if ('m' == code[1])
 			{
 				push(_text_buffer_ptr);
 			}
-			else if ('>' == s[1])
+			else if ('>' == code[1])
 			{
 				push(_text_buffer_ptr);
-				emitl(0);
+				emit_short(0);
 			}
-			else if ('<' == s[1])
+			else if ('<' == code[1])
 			{
-				emitl(pop() - _text_buffer_ptr - 2);
+				emit_short(pop() - _text_buffer_ptr - 2);
 			}
-			else if ('r' == s[1])
+			else if ('r' == code[1])
 			{
 				x = pop();
-				text_patchl(x, _text_buffer_ptr - x - 2);
+				text_patch_short(x, _text_buffer_ptr - x - 2);
 			}
 			else
 			{
@@ -436,9 +436,9 @@ void generate(char *s, int v)
 		}
 		else
 		{
-			emit(hex(*s) * 16 + hex(s[1]));
+			emit_byte(hex(*code) * 16 + hex(code[1]));
 		}
-		s += 2;
+		code += 2;
 	}
 }
 
@@ -468,47 +468,74 @@ void hexwrite(char *b)
 	}
 }
 
+
+/** File output **/
+
+#ifdef PLATFORM_WIN
+	static FILE * _output_target = NULL;
+#else
+	#error "Platform not supported"
+#endif
+
 // Write int32 in big-endian format
-void lewrite(int x)
+void output_write_word(word_t x)
 {
 #ifdef PLATFORM_WIN
-	fputc(x>>24 & 0xff, stdout);
-	fputc(x>>16 & 0xff, stdout);
-	fputc(x>>8 & 0xff, stdout);
-	fputc(x & 0xff, stdout);
+	fputc(x>>24 & 0xff, _output_target);
+	fputc(x>>16 & 0xff, _output_target);
+	fputc(x>>8 & 0xff, _output_target);
+	fputc(x & 0xff, _output_target);
 #else
 	#error "Platform not supported"
 #endif
 }
 
-void lewritec(int c)
+void output_write_byte(byte_t ch)
 {
 #ifdef PLATFORM_WIN
-	fputc((char)c, stdout);
+	fputc(ch, _output_target);
 #else
 	#error "Platform not supported"
 #endif
 }
 
-void pgzheader(void)
+void write_pgz_header(void)
 {
-	lewritec('z');
+	output_write_byte('z');
 
 	// write initial start segment
-	lewrite(TEXT_VADDR);	// start address
-	lewrite(0);				// size
+	output_write_word(TEXT_VADDR);	// start address
+	output_write_word(0);				// size
 }
 
-void write_section(word_t load_address, byte_t *start, word_t size)
+void write_segment(word_t load_address, byte_t *start, word_t size)
 {
-	lewrite(load_address);
-	lewrite(size);
+	output_write_word(load_address);
+	output_write_word(size);
 
 #ifdef PLATFORM_WIN
-	fwrite(start, size, 1, stdout);
+	fwrite(start, size, 1, _output_target);
 #else
 	#error "Platform not supported"
 #endif
+}
+
+void save_output(char *output_filename)
+{
+#if PLATFORM_WIN	
+	_output_target = fopen(output_filename, "wb");
+	if (_output_target == NULL)
+		aw("Could not write to output file", output_filename);
+#endif	
+
+	write_pgz_header();
+	write_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
+	write_segment(DATA_VADDR, _data_buffer, _data_buffer_ptr);
+
+#if PLATFORM_WIN
+	fclose(_output_target);
+	_output_target = NULL;
+#endif	
 }
 
 /*
@@ -520,12 +547,19 @@ char _program_source[PROGRAM_SIZE];
 int	_program_source_ptr = 0;
 int _program_source_len;
 
-void readprog(void)
+bool read_input_source(char *source_file)
 {
 #ifdef PLATFORM_WIN
-	_program_source_len = fread(_program_source, 1, PROGRAM_SIZE, stdin);
+	FILE *input = fopen(source_file, "r");
+	if (input == NULL)
+		aw("could not read source file", source_file);
+
+	_program_source_len = fread(_program_source, 1, PROGRAM_SIZE, input);
 	if (_program_source_len >= PROGRAM_SIZE)
 		aw("program too big", NULL);
+
+	fclose(input);
+
 #else
 	#error "Platform not supported"
 #endif
@@ -886,13 +920,14 @@ int	Loop0 = -1;
 int	Leaves[MAXLOOP], Lvp = 0;
 int	Loops[MAXLOOP], Llp = 0;
 
-void expect(int t, char *s)
+
+void expect(int token, char *msg)
 {
 	char	b[100];
 
-	if (t == _token)
+	if (token == _token)
 		return;
-	sprintf(b, "%s expected", s);
+	sprintf(b, "%s expected", msg);
 	aw(b, _token_str);
 }
 
@@ -925,20 +960,20 @@ int const_factor(void)
 {
 	LOG("const_factor");
 
-	int	v;
-	symbol_t *y;
+	int	value;
+	symbol_t *sym;
 
 	if (INTEGER == _token)
 	{
-		v = _token_value;
+		value = _token_value;
 		_token = scan();
-		return v;
+		return value;
 	}
 	if (SYMBOL == _token)
 	{
-		y = lookup(_token_str, SYM_CONST);
+		sym = lookup(_token_str, SYM_CONST);
 		_token = scan();
-		return y->value;
+		return sym->value;
 	}
 	aw("constant value expected", _token_str);
 	return 0; /*LINT*/
@@ -948,20 +983,20 @@ int const_value(void)
 {
 	LOG("const_value");
 
-	int	v;
+	int	value;
 
-	v = const_factor();
+	value = const_factor();
 	if (BINOP == _token && _mul_op == _token_op_id)
 	{
 		_token = scan();
-		v *= const_factor();
+		value *= const_factor();
 	}
 	else if (BINOP == _token && _add_op == _token_op_id)
 	{
 		_token = scan();
-		v += const_factor();
+		value += const_factor();
 	}
-	return v;
+	return value;
 }
 
 void var_declaration(int glob)
@@ -1009,7 +1044,7 @@ void var_declaration(int glob)
 				generate(CG_ALLOC, size * BPW);
 				generate(CG_GLOBVEC, _data_buffer_ptr);
 			}
-			dataw(0);
+			data_word(0);
 		}
 		else
 		{
@@ -1094,7 +1129,8 @@ void forward_declaration(void)
 	int	n;
 
 	_token = scan();
-	while (1) {
+	while (1)
+	{
 		expect(SYMBOL, "symbol");
 		y = add(_token_str, SYM_GLOBF|SYM_DECLARATION, 0);
 		_token = scan();
@@ -1102,10 +1138,13 @@ void forward_declaration(void)
 		n = const_value();
 		y->flags |= n << 8;
 		expect_right_paren();
+
 		if (n < 0)
 			aw("invalid arity", NULL);
+
 		if (_token != COMMA)
 			break;
+
 		_token = scan();
 	}
 	expect_semi();
@@ -1118,7 +1157,7 @@ void resolve_fwd(int loc, int fn)
 	while (loc != 0)
 	{
 		nloc = text_fetch(loc);
-		text_patch(loc, fn-loc-BPW);
+		text_patch_word(loc, fn - loc - BPW);
 		loc = nloc;
 	}
 }
@@ -1135,7 +1174,9 @@ void function_declaration(void)
 	int	oyp;
 	symbol_t	*y;
 
+	// TODO: Move this jump to program instead
 	generate(CG_JUMPFWD, 0);
+
 	y = add(_token_str, SYM_GLOBF|SYM_FUNCTION, _text_buffer_ptr);
 	_token = scan();
 	expect_left_paren();
@@ -1176,6 +1217,8 @@ void function_declaration(void)
 	Fun = 0;
 	generate(CG_CLEAR, 0);
 	generate(CG_EXIT, 0);
+
+	// TODO: Move this resolve to program instead
 	generate(CG_RESOLV, 0);
 	_symbol_table_ptr = oyp;
 	_local_frame_ptr = 0;
@@ -1219,6 +1262,7 @@ void function_call(symbol_t *fn)
 		if (RPAREN == _token)
 			aw("syntax error", _token_str);
 	}
+
 	if (i != (fn->flags >> 8))
 		aw("wrong number of arguments", fn->name);
 
@@ -1244,22 +1288,20 @@ void function_call(symbol_t *fn)
 	_accumulator_loaded = 1;
 }
 
-int make_string(char *s)
+int make_string(char *str)
 {
 	LOG("make_string");
 
-	int	i, a, k;
+	int address = _data_buffer_ptr;
+	int len = strlen(str);
 
-	a = _data_buffer_ptr;
-	k = strlen(s);
-
-	for (i=0; i<=k; i++)
-		data(s[i]);
+	for (int i = 0; i <= len; i++)
+		data_byte(str[i]);
 
 	while (_data_buffer_ptr % 4 != 0)
-		data(0);
+		data_byte(0);
 
-	return a;
+	return address;
 }
 
 int make_table(void)
@@ -1329,16 +1371,18 @@ int make_table(void)
 
 	for (i = 0; i < n; i++)
 	{
-		dataw(tbl[i]);
+		data_word(tbl[i]);
+
 		if (1 == af[i])
 		{
 			tag('d');
 		}
 		else if (af[i] > 1)
 		{
-			text_patch(af[i], _data_buffer_ptr-4);
+			text_patch_word(af[i], _data_buffer_ptr-4);
 		}
 	}
+
 	return loc;
 }
 
@@ -1919,24 +1963,30 @@ void init(void)
 	findop("-"); _minus_op = _token_op_id;
 	findop("*"); _mul_op = _token_op_id;
 	findop("+"); _add_op = _token_op_id;
+	/*
 	builtin("t.read", 3, CG_P_READ);
 	builtin("t.write", 3, CG_P_WRITE);
 	builtin("t.memcomp", 3, CG_P_MEMCOMP);
 	builtin("t.memcopy", 3, CG_P_MEMCOPY);
 	builtin("t.memfill", 3, CG_P_MEMFILL);
 	builtin("t.memscan", 3, CG_P_MEMSCAN);
+	*/
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
+	if (argc != 3)
+	{
+		printf("Usage: %s <input> <output>\n", argv[0]);
+		return 1;
+	}
+
 	init();
-	readprog();
+	read_input_source(argv[1]);
 	program();
 	_text_buffer_ptr = align(_text_buffer_ptr + 4, 16) - 4; /* 16-byte align in file */
 	resolve();
 
-	pgzheader();
-	write_section(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
-	write_section(DATA_VADDR, _data_buffer, _data_buffer_ptr);
+	save_output(argv[2]);
 	return 0;
 }

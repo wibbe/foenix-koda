@@ -241,3 +241,11 @@ CG_MOD:		;	A: = S0 mod A; P: = P + 1
 	move.l d1,$00B03060
 	move.l d0,$00B03064
 	move.l $00B0306C,d0
+
+CG_AND:		; A := S0 AND A; P := P + 1
+	move.l (sp)+,d1
+	and.l d1,d0
+
+CG_OR:		; A := S0 OR A; P := P + 1
+	move.l (sp)+,d1
+	or.l d1,d0
