@@ -100,11 +100,11 @@ CG_LDLREF: 	; w 	P: = P − 1; S0: = A; A: = F + w
 	move.l a6,d0
 	add.l #$FEDCBA98,d0
 
-CG_LDGLOB 	; a	P: = P − 1; S0: = A; A: = [a]
+CG_LDGLOB: 		; a	P: = P − 1; S0: = A; A: = [a]
 	move.l d0,-(sp)
 	move.l $FEDCBA98,d0
 
-G_LDLOCL 	; w	P: = P − 1; S0: = A; A: = [F + w]
+G_LDLOCL: 	; w	P: = P − 1; S0: = A; A: = [F + w]
 	move.l d0,-(sp)
 	move.l $FED(a6),d0
 	move.l 1(a6),d0
@@ -134,10 +134,10 @@ CG_INCLOCL: 	;w  	[F + w]: = [F + w] + 1
 	add.l #1,$FED(a6)
 
 CG_ALLOC:	; w	P: = P − w
-	sub.l #$FEDCBA98,a7
+	suba.l #$FEDCBA98,a7
 
 CG_DEALLOC:	; w	P: = P + w
-	add.l #$FEDCBA98,a7
+	adda.l #$FEDCBA98,a7
 
 CG_LOCLVEC:	;w := P; P := P − 1; S0 := w
 	move.l a7,a5

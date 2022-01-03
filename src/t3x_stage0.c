@@ -1,59 +1,61 @@
-/*
- * T3X9 -> ELF-FreeBSD-386 compiler
- * Nils M Holm, 2017, CC0 license
- * https://creativecommons.org/publicdomain/zero/1.0/
- */
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdbool.h>
 #include <ctype.h>
 
-#ifdef DEBUG
-	#define LOG(msg) printf(msg "\n")
-#else
-	#define LOG(msg)
-#endif
 
+enum {
+	BPW					= 4,
+	PROGRAM_SIZE		= 0x10000,
+	TEXT_VADDR			= 0x00020000,
+	DATA_VADDR			= 0x00040000,
+	TEXT_SIZE			= 0x10000,
+	DATA_SIZE			= 0x10000,
+	RELOCATION_SIZE		= 10000,
+	STACK_SIZE			= 100,
+	SYMBOL_TABLE_SIZE	= 1000,
+	STRING_TABLE_SIZE	= 4096,
 
-#define BPW					4
-#define PROGRAM_SIZE		0x10000
-#define TEXT_VADDR			0x00020000
-#define DATA_VADDR			0x00040000
-#define TEXT_SIZE			0x10000
-#define DATA_SIZE			0x10000
-#define NRELOC				10000
-#define STACK_SIZE			100
-#define SYMBOL_TABLE_SIZE	1000
+	OUTPUT_TYPE_PGZ		= 1,
+	OUTPUT_TYPE_SREC	= 2,
+};
 
-typedef unsigned char  	byte_t;
-typedef unsigned int  	word_t;
+typedef unsigned char bool;
+#define true 1
+#define false 0
 
 int	_stack[STACK_SIZE];
 int _stack_pointer = 0;
 
+char *_program_source_file;
 int	_current_line = 1;
+bool _has_main_body = false;
 
-void aw(char *m, char *s)
+
+void compiler_error(char *message, char *extra)
 {
-	fprintf(stderr, "t3x9: %d: %s", _current_line, m);
-	if (s != NULL)
-		fprintf(stderr, ": %s", s);
+#if PLATFORM_WIN	
+	fprintf(stderr, "error: %s(%d): %s", _program_source_file, _current_line, message);
+	if (extra != NULL)
+		fprintf(stderr, ": %s", extra);
 	fputc('\n', stderr);
 	exit(1);
+#endif	
 }
 
-void oops(char *m, char *s)
+void internal_error(char *message, char *extra)
 {
-	fprintf(stderr, "t3x9: internal error\n");
-	aw(m, s);
+#if PLATFORM_WIN	
+	fprintf(stderr, "internal error\n");
+#endif	
+	compiler_error(message, extra);
 }
 
 void push(int x)
 {
 	if (_stack_pointer >= STACK_SIZE)
-		aw("too many nesting levels", NULL);
+		compiler_error("too many nesting levels", NULL);
 	_stack[_stack_pointer++] = x;
 }
 
@@ -65,19 +67,41 @@ int tos(void)
 int pop(void)
 {
 	if (_stack_pointer < 1)
-		oops("stack underflow", NULL);
+		internal_error("stack underflow", NULL);
 	return _stack[--_stack_pointer];
 }
 
 void swap(void)
 {
 	if (_stack_pointer < 2)
-		oops("stack underflow", NULL);
+		internal_error("stack underflow", NULL);
 
 	int tmp = _stack[_stack_pointer - 1];
 	_stack[_stack_pointer - 1] = _stack[_stack_pointer - 2];
 	_stack[_stack_pointer - 2] = tmp;
 }
+
+
+/**
+ * String table
+ */
+
+char _string_table[STRING_TABLE_SIZE];
+int _string_table_ptr = 0;
+
+char *intern_string(char *str)	
+{
+	int len = strlen(str);
+	if (_string_table_ptr + len + 1 > STRING_TABLE_SIZE)
+		internal_error("string table full", NULL);
+
+	char *result = &_string_table[_string_table_ptr];
+	memcpy(result, str, len + 1);
+	_string_table_ptr += len + 1;
+
+	return result;
+}
+
 
 /*
  * Symbol table
@@ -117,9 +141,9 @@ symbol_t *lookup(char *symbol_name, int flags)
 
 	y = find(symbol_name);
 	if (NULL == y)
-		aw("undefined", symbol_name);
+		compiler_error("undefined", symbol_name);
 	if ((y->flags & flags) != flags)
-		aw("unexpected type", symbol_name);
+		compiler_error("unexpected type", symbol_name);
 
 	return y;
 }
@@ -134,35 +158,33 @@ symbol_t *add(char *symbol_name, int flags, int value)
 		if (y->flags & SYM_DECLARATION && flags & SYM_FUNCTION)
 			return y;
 		else
-			aw("redefined", symbol_name);
+			compiler_error("redefined", symbol_name);
 	}
 
 	if (_symbol_table_ptr >= SYMBOL_TABLE_SIZE)
-		aw("too many symbols", NULL);
+		compiler_error("too many symbols", NULL);
 
-	_symbol_table[_symbol_table_ptr].name = strdup(symbol_name);
+	_symbol_table[_symbol_table_ptr].name = intern_string(symbol_name);
 	_symbol_table[_symbol_table_ptr].flags = flags;
 	_symbol_table[_symbol_table_ptr].value = value;
 	_symbol_table_ptr++;
 	return &_symbol_table[_symbol_table_ptr - 1];
 }
 
+
 /*
  * Emitter
  */
 
-#define HEADER_SIZE		0x74
-#define PAGE_SIZE		0x1000
-
-typedef struct reloc_t {
+typedef struct relocation_t {
 	int	addr;
 	int	seg;
-} reloc_t;
+} relocation_t;
 
-reloc_t	_relocation_table[NRELOC];
+relocation_t _relocation_table[RELOCATION_SIZE];
 
-byte_t _text_buffer[TEXT_SIZE];
-byte_t _data_buffer[DATA_SIZE];
+unsigned char _text_buffer[TEXT_SIZE];
+unsigned char _data_buffer[DATA_SIZE];
 
 int	_relocation_ptr = 0;
 int _text_buffer_ptr = 0;
@@ -186,10 +208,10 @@ int	_accumulator_loaded = 0;
  * - w, v will indicate machine words
  * - a will indicate an address (which has to be relocated)
  * - [x] will indicate the value at address x
- * - b[x] will indicate the byte_t at address x
+ * - b[x] will indicate the unsigned char at address x
  *
  * Note 680000
- * - Word and long-word_t operands must be aligned on word_t boundaries (even addresses)
+ * - Word and long-word operands must be aligned on word boundaries (even addresses)
  */
 
 #define CG_INIT			""
@@ -260,12 +282,10 @@ int	_accumulator_loaded = 0;
 #define CG_P_MEMSCAN \
  "8b7c240c8b4424088b4c24044189fafcf2ae09c90f840600000089f829d048c331c048c3"
 
-void generate(char *s, int v);
+void generate(char *code, int value);
 
 void spill(void)
 {
-	LOG("spill");
-
 	if (_accumulator_loaded)
 		generate(CG_PUSH, 0);
 	else
@@ -290,7 +310,7 @@ int hex(int ch)
 		return ch - 'a' + 10;
 }
 
-void emit_byte(byte_t value)
+void emit_byte(unsigned char value)
 {
 	_text_buffer[_text_buffer_ptr++] = value;
 }
@@ -301,7 +321,7 @@ void emit_short(int value)
 	emit_byte(value & 0xFF);
 }
 
-void emit_word(word_t value)
+void emit_word(int value)
 {
 	emit_byte((value >> 24) & 0xFF);
 	emit_byte((value >> 16) & 0xFF);
@@ -309,13 +329,13 @@ void emit_word(word_t value)
 	emit_byte(value & 0xFF);
 }
 
-void text_patch_short(int address, word_t value)
+void text_patch_short(int address, int value)
 {
 	_text_buffer[address + 0] = (value >> 8) & 0xFF;
 	_text_buffer[address + 1] = value & 0xFF;
 }
 
-void text_patch_word(int address, word_t value)
+void text_patch_word(int address, int value)
 {
 	_text_buffer[address + 0] = (value >> 24) & 0xFF;
 	_text_buffer[address + 1] = (value >> 16) & 0xFF;
@@ -328,12 +348,12 @@ int text_fetch(int a)
 	return _text_buffer[a + 3] | (_text_buffer[a + 2] << 8) | (_text_buffer[a + 1] << 16) | (_text_buffer[a + 0] << 24);
 }
 
-void data_byte(byte_t value)
+void data_byte(unsigned char value)
 {
 	_data_buffer[_data_buffer_ptr++] = value;
 }
 
-void data_word(word_t value)
+void data_word(int value)
 {
 	data_byte((value >> 24) & 255);
 	data_byte((value >> 16) & 255);
@@ -341,7 +361,7 @@ void data_word(word_t value)
 	data_byte(value);
 }
 
-void data_patch(int address, word_t value)
+void data_patch(int address, int value)
 {
 	_data_buffer[address + 0] = (value >> 24) & 0xFF;
 	_data_buffer[address + 1] = (value >> 16) & 0xFF;
@@ -356,8 +376,8 @@ int data_fetch(int address)
 
 void tag(int seg)
 {
-	if (_relocation_ptr >= NRELOC)
-		oops("relocation buffer overflow", NULL);
+	if (_relocation_ptr >= RELOCATION_SIZE)
+		internal_error("relocation buffer overflow", NULL);
 
 	_relocation_table[_relocation_ptr].seg = seg;
 	_relocation_table[_relocation_ptr].addr = seg == 't' ? _text_buffer_ptr - BPW : _data_buffer_ptr - BPW;
@@ -366,39 +386,36 @@ void tag(int seg)
 
 void resolve(void)
 {
-	int	i, a, dist;
+	int dist = DATA_VADDR;
 
-	dist = DATA_VADDR;
-	for (i=0; i<_relocation_ptr; i++)
+	for (int i = 0; i < _relocation_ptr; ++i)
 	{
-		if ('t' == _relocation_table[i].seg)
+		if (_relocation_table[i].seg == 't')
 		{
-			a = text_fetch(_relocation_table[i].addr);
-			a += dist;
-			text_patch_word(_relocation_table[i].addr, a);
+			int address = text_fetch(_relocation_table[i].addr);
+			address += dist;
+			text_patch_word(_relocation_table[i].addr, address);
 		}
 		else
 		{
-			a = data_fetch(_relocation_table[i].addr);
-			a += dist;
-			data_patch(_relocation_table[i].addr, a);
+			int address = data_fetch(_relocation_table[i].addr);
+			address += dist;
+			data_patch(_relocation_table[i].addr, address);
 		}
 	}
 }
 
 void generate(char *code, int value)
 {
-	int	x;
-
 	while (*code)
 	{
-		if (',' == *code)
+		if (*code == ',')
 		{
-			if ('b' == code[1])
+			if (code[1] == 'b')
 			{
 				emit_byte(value);
 			}
-			else if ('w' == code[1])
+			else if (code[1] == 'w')
 			{
 				emit_word(value);
 			}
@@ -406,32 +423,32 @@ void generate(char *code, int value)
 			{
 				emit_short(value);
 			}
-			else if ('a' == code[1])
+			else if (code[1] == 'a')
 			{
 				emit_word(value);
 				tag('t');
 			}
-			else if ('m' == code[1])
+			else if (code[1] == 'm')
 			{
 				push(_text_buffer_ptr);
 			}
-			else if ('>' == code[1])
+			else if (code[1] == '>')
 			{
 				push(_text_buffer_ptr);
 				emit_short(0);
 			}
-			else if ('<' == code[1])
+			else if (code[1] == '<')
 			{
 				emit_short(pop() - _text_buffer_ptr - 2);
 			}
-			else if ('r' == code[1])
+			else if (code[1] == 'r')
 			{
-				x = pop();
+				int x = pop();
 				text_patch_short(x, _text_buffer_ptr - x - 2);
 			}
 			else
 			{
-				oops("bad code", NULL);
+				internal_error("bad code", NULL);
 			}
 		}
 		else
@@ -445,31 +462,20 @@ void generate(char *code, int value)
 void builtin(char *name, int arity, char *code)
 {
 	generate(CG_JUMPFWD, 0);
-	add(name, SYM_GLOBF|SYM_FUNCTION | (arity << 8), _text_buffer_ptr);
+	add(name, SYM_GLOBF | SYM_FUNCTION | (arity << 8), _text_buffer_ptr);
 	generate(code, 0);
 	generate(CG_RESOLV, 0);
 }
 
 int align(int x, int a)
 {
-	return (x+a) & ~(a-1);
-}
-
-void hexwrite(char *b)
-{
-	while (*b)
-	{
-#ifdef PLATFORM_WIN
-		fputc(16*hex(*b)+hex(b[1]), stdout);
-#else
-		#error "Platform not supported"
-#endif
-		b += 2;
-	}
+	return (x + a) & ~(a - 1);
 }
 
 
-/** File output **/
+/**
+ * File output
+ */
 
 #ifdef PLATFORM_WIN
 	static FILE * _output_target = NULL;
@@ -477,8 +483,11 @@ void hexwrite(char *b)
 	#error "Platform not supported"
 #endif
 
+int _output_type = 0;
+
+
 // Write int32 in big-endian format
-void output_write_word(word_t x)
+void write_output_word(int x)
 {
 #ifdef PLATFORM_WIN
 	fputc(x>>24 & 0xff, _output_target);
@@ -490,7 +499,7 @@ void output_write_word(word_t x)
 #endif
 }
 
-void output_write_byte(byte_t ch)
+void write_output_byte(unsigned char ch)
 {
 #ifdef PLATFORM_WIN
 	fputc(ch, _output_target);
@@ -501,17 +510,17 @@ void output_write_byte(byte_t ch)
 
 void write_pgz_header(void)
 {
-	output_write_byte('z');
+	write_output_byte('z');
 
 	// write initial start segment
-	output_write_word(TEXT_VADDR);	// start address
-	output_write_word(0);				// size
+	write_output_word(TEXT_VADDR);		// start address
+	write_output_word(0);				// size
 }
 
-void write_segment(word_t load_address, byte_t *start, word_t size)
+void write_pgz_segment(int load_address, unsigned char *start, int size)
 {
-	output_write_word(load_address);
-	output_write_word(size);
+	write_output_word(load_address);
+	write_output_word(size);
 
 #ifdef PLATFORM_WIN
 	fwrite(start, size, 1, _output_target);
@@ -520,17 +529,94 @@ void write_segment(word_t load_address, byte_t *start, word_t size)
 #endif
 }
 
+void write_srec_byte(unsigned char data)
+{
+	unsigned char output[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+#ifdef PLATFORM_WIN
+	write_output_byte(output[(data >> 4) & 0x0F]);
+	write_output_byte(output[data & 0x0F]);
+#endif
+}
+
+void write_srec_word(int data)
+{
+	write_srec_byte((data >> 24) & 0xFF);
+	write_srec_byte((data >> 16) & 0xFF);
+	write_srec_byte((data >> 8) & 0xFF);
+	write_srec_byte(data & 0xFF);
+}
+
+void write_srec_header(void)
+{
+#ifdef PLATFORM_WIN
+	fprintf(_output_target, "S00B00007365673130303030C4\n");
+#endif	
+}
+
+void write_srec_record(unsigned char *data, int address, int byte_count)
+{
+#ifdef PLATFORM_WIN
+	fprintf(_output_target, "S3");
+#endif
+
+	int data_count = byte_count + 5;
+	int checksum = data_count & 0xFF;
+	checksum += (address >> 24) & 0xFF;
+	checksum += (address >> 16) & 0xFF;
+	checksum += (address >> 8) & 0xFF;
+	checksum += address & 0xFF;
+
+	write_srec_byte(data_count);
+	write_srec_word(address);
+
+	for (int i = 0; i < byte_count; ++i)
+	{
+		unsigned char byte = data[i];
+		write_srec_byte(byte);
+		checksum += byte;
+	}
+
+	write_srec_byte((checksum & 0xFF) ^ 0xFF);
+	write_output_byte('\n');
+}
+
+void write_srec_segment(int load_address, unsigned char *start, int size)
+{
+	int pos = 0;
+	int address = load_address;
+
+	while (pos < size)
+	{
+		int len = size - pos < 32 ? size - pos : 32;
+		write_srec_record(start, address, len);
+
+		pos += len;
+		start += len;
+		address += len;
+	}
+}
+
 void save_output(char *output_filename)
 {
-#if PLATFORM_WIN	
-	_output_target = fopen(output_filename, "wb");
+#if PLATFORM_WIN
+
+	_output_target = fopen(output_filename, _output_type == OUTPUT_TYPE_PGZ ? "wb" : "w");
 	if (_output_target == NULL)
-		aw("Could not write to output file", output_filename);
+		compiler_error("could not write to output file", output_filename);
 #endif	
 
-	write_pgz_header();
-	write_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
-	write_segment(DATA_VADDR, _data_buffer, _data_buffer_ptr);
+	if (_output_type == OUTPUT_TYPE_PGZ)
+	{
+		write_pgz_header();
+		write_pgz_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
+		write_pgz_segment(DATA_VADDR, _data_buffer, _data_buffer_ptr);
+	}
+	else
+	{
+		write_srec_header();
+		write_srec_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
+		write_srec_segment(DATA_VADDR, _data_buffer, _data_buffer_ptr);
+	}
 
 #if PLATFORM_WIN
 	fclose(_output_target);
@@ -538,7 +624,8 @@ void save_output(char *output_filename)
 #endif	
 }
 
-/*
+
+/**
  * Scanner
  */
 
@@ -549,14 +636,17 @@ int _program_source_len;
 
 bool read_input_source(char *source_file)
 {
+	_program_source_file = source_file;
+	_current_line = 0;
+
 #ifdef PLATFORM_WIN
 	FILE *input = fopen(source_file, "r");
 	if (input == NULL)
-		aw("could not read source file", source_file);
+		compiler_error("could not read source file", source_file);
 
 	_program_source_len = fread(_program_source, 1, PROGRAM_SIZE, input);
 	if (_program_source_len >= PROGRAM_SIZE)
-		aw("program too big", NULL);
+		compiler_error("program too big", NULL);
 
 	fclose(input);
 
@@ -565,26 +655,26 @@ bool read_input_source(char *source_file)
 #endif
 }
 
-int readrc(void)
+int read_char(void)
 {
 	return _program_source_ptr >= _program_source_len? EOF: _program_source[_program_source_ptr++];
 }
 
-int readc(void)
+int read_lower_char(void)
 {
 	return _program_source_ptr >= _program_source_len? EOF: tolower(_program_source[_program_source_ptr++]);
 }
 
 #define META		256
 
-int readec(void)
+int read_encoded_char(void)
 {
 	int	c;
 
-	c = readrc();
+	c = read_char();
 	if (c != '\\')
 		return c;
-	c = readc();
+	c = read_lower_char();
 	if ('a' == c) return '\a';
 	if ('b' == c) return '\b';
 	if ('e' == c) return '\033';
@@ -615,13 +705,12 @@ int _minus_op;
 int _mul_op;
 int _add_op;
 
-typedef struct operator_t
-{
+typedef struct operator_t {
 	int	prec;
 	int	len;
-	char	*name;
+	char *name;
 	int	tok;
-	char	*code;
+	char *code;
 } operator_t;
 
 
@@ -635,7 +724,7 @@ enum
 	KLEAVE, KLOOP, KRETURN, KSTRUCT, KVAR, KWHILE
 };
 
-operator_t Ops[] = {
+operator_t _operators[] = {
 	{ 7, 3, "mod",	BINOP,  CG_MOD		},
 	{ 6, 1, "+",	BINOP,  CG_ADD		},
 	{ 7, 1, "*",	BINOP,  CG_MUL		},
@@ -670,92 +759,91 @@ operator_t Ops[] = {
 	{ 0, 0, NULL,   0,      NULL		}
 };
 
-int skip(void)
+int skip_whitespace_and_comment(void)
 {
-	int	c;
+	int ch = read_lower_char();
 
-	c = readc();
-	for (;;)
+	while (true)
 	{
-		while (' ' == c || '\t' == c || '\n' == c || '\r' == c)
+		while (' ' == ch || '\t' == ch || '\n' == ch || '\r' == ch)
 		{
-			if ('\n' == c)
+			if ('\n' == ch)
 				_current_line++;
-			c = readc();
+			ch = read_lower_char();
 		}
 
-		if (c != '#')
-			return c;
+		if (ch != '#')
+			return ch;
 
-		while (c != '\n' && c != EOF)
-			c = readc();
+		while (ch != '\n' && ch != EOF)
+			ch = read_lower_char();
 	}
 }
 
-int find_keyword(char *s)
+int find_keyword(char *str)
 {
-	if ('c' == s[0])
+	if ('c' == str[0])
 	{
-		if (!strcmp(s, "const")) return KCONST;
+		if (!strcmp(str, "const")) return KCONST;
 		return 0;
 	}
-	if ('d' == s[0])
+	if ('d' == str[0])
 	{
-		if (!strcmp(s, "do")) return KDO;
-		if (!strcmp(s, "decl")) return KDECL;
+		if (!strcmp(str, "do")) return KDO;
+		if (!strcmp(str, "decl")) return KDECL;
 		return 0;
 	}
-	if ('e' == s[0])
+	if ('e' == str[0])
 	{
-		if (!strcmp(s, "else")) return KELSE;
-		if (!strcmp(s, "end")) return KEND;
+		if (!strcmp(str, "else")) return KELSE;
+		if (!strcmp(str, "end")) return KEND;
 		return 0;
 	}
-	if ('f' == s[0])
+	if ('f' == str[0])
 	{
-		if (!strcmp(s, "for")) return KFOR;
+		if (!strcmp(str, "for")) return KFOR;
 		return 0;
 	}
-	if ('h' == s[0])
+	if ('h' == str[0])
 	{
-		if (!strcmp(s, "halt")) return KHALT;
+		if (!strcmp(str, "halt")) return KHALT;
 		return 0;
 	}
-	if ('i' == s[0])
+	if ('i' == str[0])
 	{
-		if (!strcmp(s, "if")) return KIF;
-		if (!strcmp(s, "ie")) return KIE;
+		if (!strcmp(str, "if")) return KIF;
+		if (!strcmp(str, "ie")) return KIE;
 		return 0;
 	}
-	if ('l' == s[0])
+	if ('l' == str[0])
 	{
-		if (!strcmp(s, "leave")) return KLEAVE;
-		if (!strcmp(s, "loop")) return KLOOP;
+		if (!strcmp(str, "leave")) return KLEAVE;
+		if (!strcmp(str, "loop")) return KLOOP;
 		return 0;
 	}
-	if ('m' == s[0])
+	if ('m' == str[0])
 	{
-		if (!strcmp(s, "mod")) return BINOP;
+		if (!strcmp(str, "mod")) return BINOP;
 		return 0;
 	}
-	if ('r' == s[0])
+	if ('r' == str[0])
 	{
-		if (!strcmp(s, "return")) return KRETURN;
+		if (!strcmp(str, "return")) return KRETURN;
 		return 0;
 	}
-	if ('s' == s[0])
+	if ('s' == str[0])
 	{
-		if (!strcmp(s, "struct")) return KSTRUCT;
+		if (!strcmp(str, "struct")) return KSTRUCT;
 		return 0;
 	}
-	if ('v' == s[0])
+	if ('v' == str[0])
 	{
-		if (!strcmp(s, "var")) return KVAR;
+		if (!strcmp(str, "var")) return KVAR;
 		return 0;
 	}
-	if ('w' == s[0])
+	if ('w' == str[0])
 	{
-		if (!strcmp(s, "while")) return KWHILE;
+		if (!strcmp(str, "while")) return KWHILE;
 		return 0;
 	}
 
@@ -769,15 +857,15 @@ int scanop(int c)
 	i = 0;
 	j = 0;
 	_token_op_id = -1;
-	while (Ops[i].len > 0)
+	while (_operators[i].len > 0)
 	{
-		if (Ops[i].len > j)
+		if (_operators[i].len > j)
 		{
-			if (Ops[i].name[j] == c)
+			if (_operators[i].name[j] == c)
 			{
 				_token_op_id = i;
 				_token_str[j] = c;
-				c = readc();
+				c = read_lower_char();
 				j++;
 			}
 		}
@@ -791,36 +879,36 @@ int scanop(int c)
 	{
 		_token_str[j++] = c;
 		_token_str[j] = 0;
-		aw("unknown operator", _token_str);
+		compiler_error("unknown operator", _token_str);
 	}
 	_token_str[j] = 0;
 	reject();
-	return Ops[_token_op_id].tok;
+	return _operators[_token_op_id].tok;
 }
 
-void findop(char *s)
+void find_operator(char *s)
 {
 	int	i;
 
 	i = 0;
-	while (Ops[i].len > 0)
+	while (_operators[i].len > 0)
 	{
-		if (!strcmp(s, Ops[i].name))
+		if (!strcmp(s, _operators[i].name))
 		{
 			_token_op_id = i;
 			return;
 		}
 		i++;
 	}
-	oops("operator not found", s);
+	internal_error("operator not found", s);
 }
 
 int scan(void)
 {
 	int	c, i, k, sgn;
 
-	c = skip();
-	if (EOF == c)
+	c = skip_whitespace_and_comment();
+	if (c == EOF)
 	{
 		strcpy(_token_str, "end of file");
 		return ENDFILE;
@@ -831,80 +919,93 @@ int scan(void)
 		i = 0;
 		while (isalpha(c) || '_' == c || '.' == c || isdigit(c))
 		{
-			if (i >= TOKEN_LEN-1)
+			if (i >= TOKEN_LEN - 1)
 			{
 				_token_str[i] = 0;
-				aw("symbol too long", _token_str);
+				compiler_error("symbol too long", _token_str);
 			}
+
 			_token_str[i++] = c;
-			c = readc();
+			c = read_lower_char();
 		}
+
 		_token_str[i] = 0;
 		reject();
 		if ((k = find_keyword(_token_str)) != 0)
 		{
 			if (BINOP == k)
-				findop(_token_str);
+				find_operator(_token_str);
 			return k;
 		}
 		return SYMBOL;
 	}
+
+	// TODO: Add support for hex encoded numbers here
 	if (isdigit(c) || '%' == c)
 	{
 		sgn = 1;
 		i = 0;
+
 		if ('%' == c)
 		{
 			sgn = -1;
-			c = readc();
+			c = read_lower_char();
 			_token_str[i++] = c;
+
 			if (!isdigit(c))
 			{
 				reject();
 				return scanop('-');
 			}
 		}
+
 		_token_value = 0;
+
 		while (isdigit(c))
 		{
 			if (i >= TOKEN_LEN-1)
 			{
 				_token_str[i] = 0;
-				aw("integer too long", _token_str);
+				compiler_error("integer too long", _token_str);
 			}
+
 			_token_str[i++] = c;
 			_token_value = _token_value * 10 + c - '0';
-			c = readc();
+			c = read_lower_char();
 		}
+
 		_token_str[i] = 0;
 		reject();
 		_token_value = _token_value * sgn;
 		return INTEGER;
 	}
+
 	if ('\'' == c)
 	{
-		_token_value = readec();
-		if (readc() != '\'')
-			aw("missing ''' in character", NULL);
+		_token_value = read_encoded_char();
+		if (read_lower_char() != '\'')
+			compiler_error("missing ''' in character", NULL);
 		return INTEGER;
 	}
+
 	if ('"' == c)
 	{
 		i = 0;
-		c = readec();
+		c = read_encoded_char();
 		while (c != '"' && c != EOF)
 		{
 			if (i >= TOKEN_LEN-1)
 			{
 				_token_str[i] = 0;
-				aw("string too long", _token_str);
+				compiler_error("string too long", _token_str);
 			}
 			_token_str[i++] = c & (META-1);
-			c = readec();
+			c = read_encoded_char();
 		}
 		_token_str[i] = 0;
 		return STRING;
 	}
+
 	return scanop(c);
 }
 
@@ -915,7 +1016,7 @@ int scan(void)
 #define MAXTBL		128
 #define MAXLOOP		100
 
-int	Fun = 0;
+bool _parsing_function = false;
 int	Loop0 = -1;
 int	Leaves[MAXLOOP], Lvp = 0;
 int	Loops[MAXLOOP], Llp = 0;
@@ -928,7 +1029,7 @@ void expect(int token, char *msg)
 	if (token == _token)
 		return;
 	sprintf(b, "%s expected", msg);
-	aw(b, _token_str);
+	compiler_error(b, _token_str);
 }
 
 void expect_equal_sign(void)
@@ -958,7 +1059,6 @@ void expect_right_paren(void)
 
 int const_factor(void)
 {
-	LOG("const_factor");
 
 	int	value;
 	symbol_t *sym;
@@ -975,14 +1075,12 @@ int const_factor(void)
 		_token = scan();
 		return sym->value;
 	}
-	aw("constant value expected", _token_str);
+	compiler_error("constant value expected", _token_str);
 	return 0; /*LINT*/
 }
 
 int const_value(void)
 {
-	LOG("const_value");
-
 	int	value;
 
 	value = const_factor();
@@ -1001,8 +1099,6 @@ int const_value(void)
 
 void var_declaration(int glob)
 {
-	LOG("var_declaration");
-
 	symbol_t *y;
 	int	size;
 
@@ -1022,7 +1118,7 @@ void var_declaration(int glob)
 			_token = scan();
 			size = const_value();
 			if (size < 1)
-				aw("invalid size", NULL);
+				compiler_error("invalid size", NULL);
 			y->flags |= SYM_VECTOR;
 			expect(RBRACK, "']'");
 			_token = scan();
@@ -1032,7 +1128,7 @@ void var_declaration(int glob)
 			_token = scan();
 			size = const_value();
 			if (size < 1)
-				aw("invalid size", NULL);
+				compiler_error("invalid size", NULL);
 			size = (size + BPW - 1) / BPW;
 			y->flags |= SYM_VECTOR;
 		}
@@ -1068,8 +1164,6 @@ void var_declaration(int glob)
 
 void const_declaration(int glob)
 {
-	LOG("const_declaration");
-
 	symbol_t	*y;
 
 	_token = scan();
@@ -1093,14 +1187,12 @@ void const_declaration(int glob)
 
 void struct_declaration(int glob)
 {
-	LOG("struct_declaration");
-
-	symbol_t	*y;
+	symbol_t *sym;
 	int	i;
 
 	_token = scan();
 	expect(SYMBOL, "symbol");
-	y = add(_token_str, glob | SYM_CONST, 0);
+	sym = add(_token_str, glob | SYM_CONST, 0);
 	_token = scan();
 	i = 0;
 	expect_equal_sign();
@@ -1117,30 +1209,28 @@ void struct_declaration(int glob)
 		_token = scan();
 	}
 
-	y->value = i;
+	sym->value = i;
 	expect_semi();
 }
 
 void forward_declaration(void)
 {
-	LOG("forward_declaration");
-
-	symbol_t	*y;
+	symbol_t *sym;
 	int	n;
 
 	_token = scan();
 	while (1)
 	{
 		expect(SYMBOL, "symbol");
-		y = add(_token_str, SYM_GLOBF|SYM_DECLARATION, 0);
+		sym = add(_token_str, SYM_GLOBF|SYM_DECLARATION, 0);
 		_token = scan();
 		expect_left_paren();
 		n = const_value();
-		y->flags |= n << 8;
+		sym->flags |= n << 8;
 		expect_right_paren();
 
 		if (n < 0)
-			aw("invalid arity", NULL);
+			compiler_error("invalid arity", NULL);
 
 		if (_token != COMMA)
 			break;
@@ -1150,7 +1240,7 @@ void forward_declaration(void)
 	expect_semi();
 }
 
-void resolve_fwd(int loc, int fn)
+void resolve_forward(int loc, int fn)
 {
 	int	nloc;
 
@@ -1165,19 +1255,17 @@ void resolve_fwd(int loc, int fn)
 void compound_statement(void);
 void statememt(void);
 
+
 void function_declaration(void)
 {
-	LOG("function_declaration");
-
 	int	l_base, l_addr = 2*BPW;
 	int	i, na = 0;
 	int	oyp;
 	symbol_t	*y;
 
-	// TODO: Move this jump to program instead
 	generate(CG_JUMPFWD, 0);
 
-	y = add(_token_str, SYM_GLOBF|SYM_FUNCTION, _text_buffer_ptr);
+	y = add(_token_str, SYM_GLOBF | SYM_FUNCTION, _text_buffer_ptr);
 	_token = scan();
 	expect_left_paren();
 	oyp = _symbol_table_ptr;
@@ -1200,9 +1288,9 @@ void function_declaration(void)
 
 	if (y->flags & SYM_DECLARATION)
 	{
-		resolve_fwd(y->value, _text_buffer_ptr);
+		resolve_forward(y->value, _text_buffer_ptr);
 		if (na != y->flags >> 8)
-			aw("redefinition with different type", y->name);
+			compiler_error("redefinition with different type", y->name);
 
 		y->flags &= ~SYM_DECLARATION;
 		y->flags |= SYM_FUNCTION;
@@ -1212,13 +1300,12 @@ void function_declaration(void)
 	expect_right_paren();
 	y->flags |= na << 8;
 	generate(CG_ENTER, 0);
-	Fun = 1;
+	_parsing_function = true;
 	statememt();
-	Fun = 0;
+	_parsing_function = false;
 	generate(CG_CLEAR, 0);
 	generate(CG_EXIT, 0);
 
-	// TODO: Move this resolve to program instead
 	generate(CG_RESOLV, 0);
 	_symbol_table_ptr = oyp;
 	_local_frame_ptr = 0;
@@ -1226,8 +1313,6 @@ void function_declaration(void)
 
 void declaration(int glob)
 {
-	LOG("declaration");
-
 	if (KVAR == _token)
 		var_declaration(glob);
 	else if (KCONST == _token)
@@ -1240,31 +1325,31 @@ void declaration(int glob)
 		function_declaration();
 }
 
-void expr(int clr);
+void expression(int clr);
 
 void function_call(symbol_t *fn)
 {
-	LOG("function_call");
-
-	int	i = 0;
+	int	argument_count = 0;
 
 	_token = scan();
 	if (NULL == fn)
-		aw("call of non-function", NULL);
+		compiler_error("call of non-function", NULL);
 
 	while (_token != RPAREN)
 	{
-		expr(0);
-		i++;
+		expression(0);
+		argument_count++;
+
 		if (COMMA != _token)
 			break;
 		_token = scan();
+		
 		if (RPAREN == _token)
-			aw("syntax error", _token_str);
+			compiler_error("syntax error", _token_str);
 	}
 
-	if (i != (fn->flags >> 8))
-		aw("wrong number of arguments", fn->name);
+	if (argument_count != (fn->flags >> 8))
+		compiler_error("wrong number of arguments", fn->name);
 
 	expect(RPAREN, "')'");
 	_token = scan();
@@ -1274,24 +1359,22 @@ void function_call(symbol_t *fn)
 
 	if (fn->flags & SYM_DECLARATION)
 	{
-		generate(CG_CALL, fn->value);
-		fn->value = _text_buffer_ptr-BPW;
+		generate(CG_CALL, TEXT_VADDR + fn->value);
+		fn->value = _text_buffer_ptr - BPW;
 	}
 	else
 	{
-		generate(CG_CALL, fn->value-_text_buffer_ptr-5);	/* TP-BPW+1 */
+		generate(CG_CALL, TEXT_VADDR + fn->value); //-_text_buffer_ptr-5);	/* TP-BPW+1 */
 	}
 
-	if (i != 0)
-		generate(CG_DEALLOC, i*BPW);
+	if (argument_count != 0)
+		generate(CG_DEALLOC, argument_count * BPW);
 
 	_accumulator_loaded = 1;
 }
 
 int make_string(char *str)
 {
-	LOG("make_string");
-
 	int address = _data_buffer_ptr;
 	int len = strlen(str);
 
@@ -1306,8 +1389,6 @@ int make_string(char *str)
 
 int make_table(void)
 {
-	LOG("make_table");
-
 	int	n, i;
 	int	loc;
 	int	tbl[MAXTBL], af[MAXTBL];
@@ -1315,10 +1396,11 @@ int make_table(void)
 
 	_token = scan();
 	n = 0;
+
 	while (_token != RBRACK)
 	{
 		if (n >= MAXTBL)
-			aw("table too big", NULL);
+			compiler_error("table too big", NULL);
 
 		if (LPAREN == _token)
 		{
@@ -1328,10 +1410,10 @@ int make_table(void)
 		}
 		else if (dynamic)
 		{
-			expr(1);
+			expression(1);
 			generate(CG_STGLOB, 0);
 			tbl[n] = 0;
-			af[n++] = _text_buffer_ptr-BPW;
+			af[n++] = _text_buffer_ptr - BPW;
 			if (RPAREN == _token)
 			{
 				_token = scan();
@@ -1356,7 +1438,7 @@ int make_table(void)
 		}
 		else
 		{
-			aw("invalid table element", _token_str);
+			compiler_error("invalid table element", _token_str);
 		}
 
 		if (_token != COMMA)
@@ -1386,41 +1468,39 @@ int make_table(void)
 	return loc;
 }
 
-void load(symbol_t *y)
+void load(symbol_t *sym)
 {
-	if (y->flags & SYM_GLOBF)
-		generate(CG_LDGLOBAL, y->value);
+	if (sym->flags & SYM_GLOBF)
+		generate(CG_LDGLOBAL, sym->value);
 	else
-		generate(CG_LDLOCAL, y->value);
+		generate(CG_LDLOCAL, sym->value);
 }
 
-void store(symbol_t *y)
+void store(symbol_t *sym)
 {
-	if (y->flags & SYM_GLOBF)
-		generate(CG_STGLOB, y->value);
+	if (sym->flags & SYM_GLOBF)
+		generate(CG_STGLOB, sym->value);
 	else
-		generate(CG_STLOCL, y->value);
+		generate(CG_STLOCL, sym->value);
 }
 
 void factor(void);
 
 symbol_t *address(int lv, int *bp)
 {
-	LOG("address");
-
 	symbol_t	*y;
 
 	y = lookup(_token_str, 0);
 	_token = scan();
 	if (y->flags & SYM_CONST)
 	{
-		if (lv > 0) aw("invalid address", y->name);
+		if (lv > 0) compiler_error("invalid address", y->name);
 		spill();
 		generate(CG_LDVAL, y->value);
 	}
 	else if (y->flags & (SYM_FUNCTION|SYM_DECLARATION))
 	{
-		if (2 == lv) aw("invalid address", y->name);
+		if (2 == lv) compiler_error("invalid address", y->name);
 	}
 	else if (0 == lv || LBRACK == _token || BYTEOP == _token)
 	{
@@ -1429,13 +1509,13 @@ symbol_t *address(int lv, int *bp)
 	}
 	if (LBRACK == _token || BYTEOP == _token)
 		if (y->flags & (SYM_FUNCTION|SYM_DECLARATION|SYM_CONST))
-			aw("bad subscript", y->name);
+			compiler_error("bad subscript", y->name);
 
 	while (LBRACK == _token)
 	{
 		*bp = 0;
 		_token = scan();
-		expr(0);
+		expression(0);
 		expect(RBRACK, "']'");
 		_token = scan();
 		y = NULL;
@@ -1459,24 +1539,18 @@ symbol_t *address(int lv, int *bp)
 
 void factor(void)
 {
-	LOG("factor");
-
 	symbol_t	*y;
 	int	op;
 	int	b;
 
 	if (INTEGER == _token)
 	{
-		LOG("factor - INTEGER");
-
 		spill();
 		generate(CG_LDVAL, _token_value);
 		_token = scan();
 	}
 	else if (SYMBOL == _token)
 	{
-		LOG("factor - SYMBOL");
-
 		y = address(0, &b);
 		if (LPAREN == _token)
 		{
@@ -1485,8 +1559,6 @@ void factor(void)
 	}
 	else if (STRING == _token)
 	{
-		LOG("factor - STRING");
-
 		spill();
 		generate(CG_LDADDR, make_string(_token_str));
 		_token = scan();
@@ -1519,7 +1591,7 @@ void factor(void)
 	{
 		op = _token_op_id;
 		if (_token_op_id != _minus_op)
-			aw("syntax error", _token_str);
+			compiler_error("syntax error", _token_str);
 		_token = scan();
 		factor();
 		generate(CG_NEG, 0);
@@ -1529,37 +1601,35 @@ void factor(void)
 		op = _token_op_id;
 		_token = scan();
 		factor();
-		generate(Ops[op].code, 0);
+		generate(_operators[op].code, 0);
 	}
 	else if (LPAREN == _token)
 	{
 		_token = scan();
-		expr(0);
+		expression(0);
 		expect_right_paren();
 	}
 	else
 	{
-		aw("syntax error", _token_str);
+		compiler_error("syntax error", _token_str);
 	}
 }
 
 int emitop(int *stk, int sp)
 {
-	generate(Ops[stk[sp - 1]].code, 0);
+	generate(_operators[stk[sp - 1]].code, 0);
 	return sp - 1;
 }
 
 void arith(void)
 {
-	LOG("arith");
-
 	int	stk[10], sp;
 
 	sp = 0;
 	factor();
 	while (BINOP == _token)
 	{
-		while (sp && Ops[_token_op_id].prec <= Ops[stk[sp-1]].prec)
+		while (sp && _operators[_token_op_id].prec <= _operators[stk[sp-1]].prec)
 			sp = emitop(stk, sp);
 
 		stk[sp++] = _token_op_id;
@@ -1575,8 +1645,6 @@ void arith(void)
 
 void conjn(void)
 {
-	LOG("conjn");
-
 	int	n = 0;
 
 	arith();
@@ -1598,8 +1666,6 @@ void conjn(void)
 
 void disjn(void)
 {
-	LOG("disjn");
-
 	int	n = 0;
 
 	conjn();
@@ -1619,10 +1685,8 @@ void disjn(void)
 	}
 }
 
-void expr(int clr)
+void expression(int clr)
 {
-	LOG("expr");
-
 	if (clr)
 	{
 		clear();
@@ -1634,13 +1698,13 @@ void expr(int clr)
 	{
 		_token = scan();
 		generate(CG_JMPFALSE, 0);
-		expr(1);
+		expression(1);
 		expect(COLON, "':'");
 		_token = scan();
 		generate(CG_JUMPFWD, 0);
 		swap();
 		generate(CG_RESOLV, 0);
-		expr(1);
+		expression(1);
 		generate(CG_RESOLV, 0);
 	}
 }
@@ -1658,13 +1722,13 @@ void return_statement(void)
 {
 	_token = scan();
 
-	if (0 == Fun)
-		aw("can't return from main body", 0);
+	if (!_parsing_function)
+		compiler_error("can't return from main body", 0);
 
 	if (SEMI == _token)
 		generate(CG_CLEAR, 0);
 	else
-		expr(1);
+		expression(1);
 
 	if (_local_frame_ptr != 0)
 		generate(CG_DEALLOC, -_local_frame_ptr);
@@ -1675,11 +1739,9 @@ void return_statement(void)
 
 void if_statement(bool expect_else)
 {
-	LOG("if_statement");
-
 	_token = scan();
 	expect_left_paren();
-	expr(1);
+	expression(1);
 	generate(CG_JMPFALSE, 0);
 	expect_right_paren();
 	statememt();
@@ -1695,7 +1757,7 @@ void if_statement(bool expect_else)
 	}
 	else if (KELSE == _token)
 	{
-		aw("ELSE without IE", NULL);
+		compiler_error("ELSE without IE", NULL);
 	}
 
 	generate(CG_RESOLV, 0);
@@ -1711,7 +1773,7 @@ void while_statement(void)
 	expect_left_paren();
 	generate(CG_MARK, 0);
 	Loop0 = tos();
-	expr(1);
+	expression(1);
 	expect_right_paren();
 	generate(CG_JMPFALSE, 0);
 	statememt();
@@ -1746,17 +1808,17 @@ void for_statement(void)
 	_token = scan();
 
 	if (y->flags & (SYM_CONST|SYM_FUNCTION|SYM_DECLARATION))
-		aw("unexpected type", y->name);
+		compiler_error("unexpected type", y->name);
 
 	expect_equal_sign();
-	expr(1);
+	expression(1);
 	store(y);
 	expect(COMMA, "','");
 	_token = scan();
 	generate(CG_MARK, 0);
 	test = tos();
 	load(y);
-	expr(0);
+	expression(0);
 
 	if (COMMA == _token)
 	{
@@ -1799,13 +1861,13 @@ void for_statement(void)
 void leave_statement(void)
 {
 	if (Loop0 < 0)
-		aw("LEAVE not in loop context", 0);
+		compiler_error("LEAVE not in loop context", 0);
 
 	_token = scan();
 	expect_semi();
 
 	if (Lvp >= MAXLOOP)
-		aw("too many LEAVEs", NULL);
+		compiler_error("too many LEAVEs", NULL);
 
 	generate(CG_JUMPFWD, 0);
 	Leaves[Lvp++] = pop();
@@ -1814,7 +1876,7 @@ void leave_statement(void)
 void loop_statement(void)
 {
 	if (Loop0 < 0)
-		aw("LOOP not in loop context", 0);
+		compiler_error("LOOP not in loop context", 0);
 
 	_token = scan();
 	expect_semi();
@@ -1827,7 +1889,7 @@ void loop_statement(void)
 	else
 	{
 		if (Llp >= MAXLOOP)
-			aw("too many LOOPs", NULL);
+			compiler_error("too many LOOPs", NULL);
 		generate(CG_JUMPFWD, 0);
 		Loops[Llp++] = pop();
 	}
@@ -1835,8 +1897,6 @@ void loop_statement(void)
 
 void assignment_or_call(void)
 {
-	LOG("assignment_or_call");
-
 	symbol_t	*y;
 	int	b;
 
@@ -1850,25 +1910,23 @@ void assignment_or_call(void)
 	else if (ASSIGN == _token)
 	{
 		_token = scan();
-		expr(0);
+		expression(0);
 		if (NULL == y)
 			generate(b? CG_STINDB: CG_STINDR, 0);
 		else if (y->flags & (SYM_FUNCTION|SYM_DECLARATION|SYM_CONST|SYM_VECTOR))
-			aw("bad location", y->name);
+			compiler_error("bad location", y->name);
 		else
 			store(y);
 	}
 	else
 	{
-		aw("syntax error", _token_str);
+		compiler_error("syntax error", _token_str);
 	}
 	expect_semi();
 }
 
 void statememt(void)
 {
-	LOG("statememt");
-
 	switch (_token)
 	{
 		case KFOR:
@@ -1912,8 +1970,6 @@ void statememt(void)
 
 void compound_statement(void)
 {
-	LOG("compound_statement");
-
 	expect(KDO, "DO");
 	_token = scan();
 	int old_symbol_table_ptr = _symbol_table_ptr;
@@ -1942,27 +1998,37 @@ void program(void)
 	while (KVAR == _token || KCONST == _token || SYMBOL == _token || KDECL == _token || KSTRUCT == _token)
 		declaration(SYM_GLOBF);
 
-	if (_token != KDO)
-		aw("DO or declaration expected", NULL);
+	// Do we have a main body for the program?
+	if (_token == KDO)
+	{
+		if (_has_main_body)
+			compiler_error("not allowed to have multiple main bodies", NULL);
 
-	compound_statement();
-	generate(CG_HALT, 0);
+		compound_statement();
+		generate(CG_HALT, 0);
 
-	for (i = 0; i < _symbol_table_ptr; i++)
-		if (_symbol_table[i].flags & SYM_DECLARATION && _symbol_table[i].value)
-			aw("undefined function", _symbol_table[i].name);
+		for (i = 0; i < _symbol_table_ptr; i++)
+		{
+			if (_symbol_table[i].flags & SYM_DECLARATION && _symbol_table[i].value)
+				compiler_error("undefined function", _symbol_table[i].name);
+		}
+
+		_has_main_body = true;
+	}
 }
 
-/*
+/**
  * Main
  */
 
 void init(void)
 {
-	findop("="); _equal_op = _token_op_id;
-	findop("-"); _minus_op = _token_op_id;
-	findop("*"); _mul_op = _token_op_id;
-	findop("+"); _add_op = _token_op_id;
+	_has_main_body = false;
+
+	find_operator("="); _equal_op = _token_op_id;
+	find_operator("-"); _minus_op = _token_op_id;
+	find_operator("*"); _mul_op = _token_op_id;
+	find_operator("+"); _add_op = _token_op_id;
 	/*
 	builtin("t.read", 3, CG_P_READ);
 	builtin("t.write", 3, CG_P_WRITE);
@@ -1973,20 +2039,94 @@ void init(void)
 	*/
 }
 
+void print_usage(char *name)
+{
+#ifdef PLATFORM_WIN
+	printf("usage: %s [-o <output>] [--pgz/-p] [--srec/-s] <input-file...>\n", name);
+#endif	
+}
+
 int main(int argc, char *argv[])
 {
-	if (argc != 3)
+	_output_type = OUTPUT_TYPE_PGZ;
+	char * input_files[32];
+	char * output_file = NULL;
+	int input_files_count = 0;
+
+	if (argc == 1)
 	{
-		printf("Usage: %s <input> <output>\n", argv[0]);
+		print_usage(argv[0]);
+		return 1;
+	}
+
+	// Parse arguments
+	int arg = 1;
+	while (arg < argc)
+	{
+		if (strcmp(argv[arg], "--pgz") == 0 || strcmp(argv[arg], "-p") == 0)
+		{
+			_output_type = OUTPUT_TYPE_PGZ;
+		}
+		else if (strcmp(argv[arg], "--srec") == 0 || strcmp(argv[arg], "-s") == 0)
+		{
+			_output_type = OUTPUT_TYPE_SREC;
+		}
+		else if (strcmp(argv[arg], "-o") == 0)
+		{
+			if (arg >= argc - 1)
+			{
+#ifdef PLATFORM_WIN				
+				printf("error: missing output filename\n");
+#endif				
+				print_usage(argv[0]);
+				return 1;
+			}
+			output_file = argv[arg + 1];
+			arg++;
+		}
+		else
+		{
+			// Must be input file
+			input_files[input_files_count++] = argv[arg];
+		}
+
+		arg++;
+	}
+
+	// Check arguments
+
+	if (output_file == NULL)
+	{
+#ifdef PLATFORM_WIN
+		printf("Error: missing output file\n");		
+#endif		
+		print_usage(argv[0]);
+		return 1;
+	}
+
+	if (input_files_count == 0)
+	{
+#ifdef PLATFORM_WIN
+		printf("error: no input files to compile\n");
+#endif		
+		print_usage(argv[0]);
 		return 1;
 	}
 
 	init();
-	read_input_source(argv[1]);
-	program();
-	_text_buffer_ptr = align(_text_buffer_ptr + 4, 16) - 4; /* 16-byte align in file */
-	resolve();
 
-	save_output(argv[2]);
+	// Compile all input files
+
+	for (int i = 0; i < input_files_count; ++i)
+	{
+		read_input_source(input_files[i]);
+		program();
+		resolve();
+	}
+
+	if (!_has_main_body)
+		compiler_error("program missing main body", NULL);
+
+	save_output(output_file);
 	return 0;
 }
