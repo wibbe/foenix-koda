@@ -78,6 +78,49 @@
 
 	org $010000
 
+
+SYSCALL0:
+	move.l d0,-(sp)
+	move.l a6,-(sp)
+	move.l (12,sp),d0
+	trap #15
+	move.l (sp)+,a6
+	move.l (sp)+,d0
+	rts
+
+SYSCALL1:
+	move.l d0,-(sp)
+	move.l a6,-(sp)
+	move.l (12,sp),d1
+	move.l (16,sp),d0
+	trap #15
+	move.l (sp)+,a6
+	move.l (sp)+,d0
+	rts
+
+SYSCALL2:
+	move.l d0,-(sp)
+	move.l a6,-(sp)
+	move.l (12,sp),d2
+	move.l (16,sp),d1
+	move.l (20,sp),d0
+	trap #15
+	move.l (sp)+,a6
+	move.l (sp)+,d0
+	rts
+
+SYSCALL3:
+	move.l d0,-(sp)
+	move.l a6,-(sp)
+	move.l (12,sp),d3
+	move.l (16,sp),d2
+	move.l (20,sp),d1
+	move.l (24,sp),d0
+	trap #15
+	move.l (sp)+,a6
+	move.l (sp)+,d0
+	rts
+
 CG_INIT:
 
 
@@ -88,24 +131,19 @@ CG_CLEAR:	; A: = 0
 	clr.l d0
 
 CG_LDVAL: 	; w	P: = P − 1; S0: = A; A: = w
-	move.l d0,-(sp)
 	move.l #$FEDCBA98,d0
 
 CG_LDADDR: 	; a	P: = P − 1; S0: = A; A: = a
-	move.l d0,-(sp)
 	move.l #$FEDCBA98,d0
 
 CG_LDLREF: 	; w 	P: = P − 1; S0: = A; A: = F + w
-	move.l d0,-(sp)
 	move.l a6,d0
 	add.l #$FEDCBA98,d0
 
 CG_LDGLOB: 		; a	P: = P − 1; S0: = A; A: = [a]
-	move.l d0,-(sp)
 	move.l $FEDCBA98,d0
 
 G_LDLOCL: 	; w	P: = P − 1; S0: = A; A: = [F + w]
-	move.l d0,-(sp)
 	move.l $FED(a6),d0
 	move.l 1(a6),d0
 	move.l 4(a6),d0
@@ -176,21 +214,23 @@ CG_JUMPBACK:	; w	I: = w;
 	bra CG_PUSH
 
 CG_JMPFALSE:	; w	if S0 = 0, then I: = w; always: P: = P + 1
-	move.l (sp)+,d1
+	;move.l (sp)+,d1
+	cmp.l #0,d0
 	beq $ABCD
 
 CG_JMPTRUE:	; w	if S0 ≠ 0, then I: = w; always: P: = P + 1
-	move.l (sp)+,d1
+	;move.l (sp)+,d1
+	cmp.l #0,d0
 	bne $ABCD
 
 CG_FOR:		; w	if S0 ≥ A, then I: = w; always: P: = P + 1
 	move.l (sp)+,d1
-	cmp d1,d0
+	cmp.l d1,d0
 	bge $ABCD
 
 CG_FORDOWN:	; w	if S0 ≤ A, then I: = w; always: P: = P + 1
 	move.l (sp)+,d1
-	cmp d1,d0
+	cmp.l d1,d0
 	bls $ABCD
 
 CG_ENTER:	;	P: = P − 1; S0: = F; F: = P
@@ -211,9 +251,9 @@ CG_LOGNOT:	;	if A = 0 then A: = −1 else A: = 0
 	move.l d0,d1
 	clr.l d0
 	cmp.l #0,d1
-	bne done
+	bne lognot_done
 	move.l #$ffffffff,d0
-done:
+lognot_done:
 
 CG_ADD:		;	A := S0 + A; P := P + 1
 	move.l (sp)+,d1
@@ -249,3 +289,21 @@ CG_AND:		; A := S0 AND A; P := P + 1
 CG_OR:		; A := S0 OR A; P := P + 1
 	move.l (sp)+,d1
 	or.l d1,d0
+
+CG_XOR:		; A: = S0 XOR A; P: = P + 1
+	move.l (sp)+,d1
+	eor.l d1,d0
+
+CG_HALT:	; w		halt program execution, return w
+	move.l #$FEDCBA98,d1
+	clr.l d0
+	trap #15
+
+CG_EQ:		; if S0 = A then A: = −1 else A: = 0; always: P: = P + 1
+	move.l (sp)+,d1
+	move.l d0,d2
+	move.l #0,d0
+	cmp.l d1,d2
+	bne eq_done
+	move.l #$FFFFFFFF,d0
+eq_done:
