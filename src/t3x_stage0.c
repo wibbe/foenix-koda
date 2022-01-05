@@ -568,12 +568,12 @@ enum
     SYMBOL = 100, INTEGER, STRING,
     ADDROF = 200, ASSIGN, BINOP, BYTEOP, COLON, COMMA, COND,
     CONJ, DISJ, LBRACK, LPAREN, RBRACK, RPAREN, SEMI, UNOP,
-    KCONST, KDECL, KDO, KELSE, KEND, KFOR, KHALT, KIE, KIF,
+    KCONST, KDECL, KDO, KELSE, KEND, KFOR, KHALT, KIF,
     KLEAVE, KLOOP, KRETURN, KSTRUCT, KVAR, KWHILE
 };
 
 operator_t _operators[] = {
-    { 7, 3, "mod",  BINOP,  CG_MOD      },
+    { 7, 1, "%",    BINOP,  CG_MOD      },
     { 6, 1, "+",    BINOP,  CG_ADD      },
     { 7, 1, "*",    BINOP,  CG_MUL      },
     { 0, 1, ";",    SEMI,   NULL        },
@@ -582,17 +582,19 @@ operator_t _operators[] = {
     { 0, 1, ")",    RPAREN, NULL        },
     { 0, 1, "[",    LBRACK, NULL        },
     { 0, 1, "]",    RBRACK, NULL        },
-    { 3, 1, "=",    BINOP,  CG_EQ       },
     { 5, 1, "&",    BINOP,  CG_AND      },
-    { 5, 1, "|",    BINOP,  CG_OR       },
+    { 1, 2, "&&",   DISJ,   NULL        },
+    { 6, 1, "-",    BINOP,  CG_SUB      },
     { 5, 1, "^",    BINOP,  CG_XOR      },
     { 0, 1, "@",    ADDROF, NULL        },
+    { 5, 1, "|",    BINOP,  CG_OR       },
+    { 2, 2, "||",   CONJ,   NULL        },
+    { 0, 1, "!",    UNOP,   CG_LOGNOT   },
+    { 0, 1, "?",    COND,   NULL        },
+    { 7, 1, "/",    BINOP,  CG_DIV      },
     { 0, 1, "~",    UNOP,   CG_INV      },
     { 0, 1, ":",    COLON,  NULL        },
     { 0, 2, "::",   BYTEOP, NULL        },
-    { 0, 2, ":=",   ASSIGN, NULL        },
-    { 0, 1, "\\",   UNOP,   CG_LOGNOT   },
-    { 1, 2, "\\/",  DISJ,   NULL        },
     { 3, 2, "!=",   BINOP,  CG_NEQ      },
     { 4, 1, "<",    BINOP,  CG_LT       },
     { 4, 2, "<=",   BINOP,  CG_LE       },
@@ -600,12 +602,12 @@ operator_t _operators[] = {
     { 4, 1, ">",    BINOP,  CG_GT       },
     { 4, 2, ">=",   BINOP,  CG_GE       },
     { 5, 2, ">>",   BINOP,  CG_SHR      },
-    { 6, 1, "-",    BINOP,  CG_SUB      },
-    { 0, 2, "?",    COND,   NULL        },
-    { 7, 1, "/",    BINOP,  CG_DIV      },
-    { 2, 2, "/\\",  CONJ,   NULL        },
+    { 0, 1, "=",    ASSIGN, NULL        },
+    { 3, 2, "==",   BINOP,  CG_EQ       },
     { 0, 0, NULL,   0,      NULL        }
 };
+
+const char * _operator_symbols = "%+*;,()[]=&|^@~:\\/!<>-?";
 
 int skip_whitespace_and_comment(void)
 {
@@ -660,7 +662,6 @@ int find_keyword(char *str)
     if ('i' == str[0])
     {
         if (!strcmp(str, "if")) return KIF;
-        if (!strcmp(str, "ie")) return KIE;
         return 0;
     }
     if ('l' == str[0])
@@ -698,41 +699,46 @@ int find_keyword(char *str)
     return 0;
 }
 
-int scanop(int c)
+int scan_operator(int ch)
 {
-    int i, j;
+    int op_idx = 0;
+    int name_idx = 0;
 
-    i = 0;
-    j = 0;
     _token_op_id = -1;
-    while (_operators[i].len > 0)
+
+    while (_operators[op_idx].len > 0)
     {
-        if (_operators[i].len > j)
+        if (_operators[op_idx].len >= name_idx)
         {
-            if (_operators[i].name[j] == c)
+            if (_operators[op_idx].name[name_idx] == ch)
             {
-                _token_op_id = i;
-                _token_str[j] = c;
-                c = read_lower_char();
-                j++;
+                _token_op_id = op_idx;
+                _token_str[name_idx] = ch;
+                ch = read_lower_char();
+                name_idx++;
+
+                // Make sure we check the same operator one more time.
+                op_idx--;
             }
         }
         else
         {
             break;
         }
-        i++;
+
+        op_idx++;
     }
     
     if (_token_op_id == -1)
     {
-        _token_str[j++] = c;
-        _token_str[j] = 0;
+        _token_str[name_idx++] = ch;
+        _token_str[name_idx] = 0;
         compiler_error("unknown operator", _token_str);
     }
 
-    _token_str[j] = 0;
+    _token_str[name_idx] = 0;
     reject();
+
     return _operators[_token_op_id].tok;
 }
 
@@ -805,7 +811,7 @@ int scan(void)
             if (!isdigit(c))
             {
                 reject();
-                return scanop('-');
+                return scan_operator('-');
             }
         }
 
@@ -856,7 +862,7 @@ int scan(void)
         return STRING;
     }
 
-    return scanop(c);
+    return scan_operator(c);
 }
 
 /*
@@ -884,7 +890,7 @@ void expect(int token, char *msg)
 
 void expect_equal_sign(void)
 {
-    if (_token != BINOP || _token_op_id != _equal_op)
+    if (_token != ASSIGN || _token_op_id != _equal_op)
         expect(0, "'='");
     _token = scan();
 }
@@ -1102,8 +1108,8 @@ void resolve_forward(int loc, int fn)
     }
 }
 
-void compound_statement(void);
-void statememt(void);
+void compound_statement();
+void statement(void);
 
 
 void function_declaration(void)
@@ -1151,7 +1157,7 @@ void function_declaration(void)
     y->flags |= na << 8;
     generate(CG_ENTER, 0);
     _parsing_function = true;
-    statememt();
+    statement();
     _parsing_function = false;
     generate(CG_CLEAR, 0);
     generate(CG_EXIT, 0);
@@ -1465,32 +1471,30 @@ void factor(void)
     }
 }
 
-int emitop(int *stk, int sp)
+int emitop(int *operator_stack, int stack_ptr)
 {
-    generate(_operators[stk[sp - 1]].code, 0);
-    return sp - 1;
+    generate(_operators[operator_stack[stack_ptr - 1]].code, 0);
+    return stack_ptr - 1;
 }
 
 void arith(void)
 {
-    int stk[10], sp;
+    int operator_stack[10];
+    int stack_ptr = 0;
 
-    sp = 0;
     factor();
     while (BINOP == _token)
     {
-        while (sp && _operators[_token_op_id].prec <= _operators[stk[sp-1]].prec)
-            sp = emitop(stk, sp);
+        while (stack_ptr && _operators[_token_op_id].prec <= _operators[operator_stack[stack_ptr - 1]].prec)
+            stack_ptr = emitop(operator_stack, stack_ptr);
 
-        stk[sp++] = _token_op_id;
+        operator_stack[stack_ptr++] = _token_op_id;
         _token = scan();
         factor();
     }
 
-    while (sp > 0)
-    {
-        sp = emitop(stk, sp);
-    }
+    while (stack_ptr > 0)
+        stack_ptr = emitop(operator_stack, stack_ptr);
 }
 
 void conjn(void)
@@ -1559,7 +1563,7 @@ void expression(int clr)
     }
 }
 
-void statememt(void);
+void statement(void);
 
 void halt_statement(void)
 {
@@ -1587,30 +1591,30 @@ void return_statement(void)
     expect_semi();
 }
 
-void if_statement(bool expect_else)
+void if_statement()
 {
     _token = scan();
     expect_left_paren();
     expression(1);
     generate(CG_JMPFALSE, 0);
     expect_right_paren();
-    statememt();
 
-    if (expect_else)
+    while (_token != KELSE && _token != KEND)
+        statement();
+
+    if (_token == KELSE)
     {
         generate(CG_JUMPFWD, 0);
         swap();
         generate(CG_RESOLV, 0);
-        expect(KELSE, "ELSE");
+
         _token = scan();
-        statememt();
-    }
-    else if (KELSE == _token)
-    {
-        compiler_error("ELSE without IE", NULL);
+        while (_token != KEND)
+            statement();
     }
 
     generate(CG_RESOLV, 0);
+    _token = scan();
 }
 
 void while_statement(void)
@@ -1626,7 +1630,7 @@ void while_statement(void)
     expression(1);
     expect_right_paren();
     generate(CG_JMPFALSE, 0);
-    statememt();
+    statement();
     swap();
     generate(CG_JUMPBACK, 0);
     generate(CG_RESOLV, 0);
@@ -1678,7 +1682,7 @@ void for_statement(void)
 
     generate(step<0? CG_FORDOWN: CG_FOR, 0);
     expect_right_paren();
-    statememt();
+    statement();
 
     while (Llp > oll)
     {
@@ -1775,7 +1779,7 @@ void assignment_or_call(void)
     expect_semi();
 }
 
-void statememt(void)
+void statement(void)
 {
     switch (_token)
     {
@@ -1785,11 +1789,8 @@ void statememt(void)
         case KHALT:
             halt_statement();
             break;
-        case KIE:
-            if_statement(1);
-            break;
         case KIF:
-            if_statement(0);
+            if_statement();
             break;
         case KLEAVE:
             leave_statement();
@@ -1822,6 +1823,7 @@ void compound_statement(void)
 {
     expect(KDO, "DO");
     _token = scan();
+
     int old_symbol_table_ptr = _symbol_table_ptr;
     int old_local_frame_ptr = _local_frame_ptr;
 
@@ -1829,7 +1831,9 @@ void compound_statement(void)
         declaration(0);
 
     while (_token != KEND)
-        statememt();
+        statement();
+
+
     _token = scan();
 
     if (old_local_frame_ptr - _local_frame_ptr != 0)
@@ -1853,8 +1857,6 @@ void program(bool last_file)
     // Do we have a main body for the program?
     if (_token == KDO)
     {
-        printf("Found main body\n");
-
         if (_has_main_body)
             compiler_error("not allowed to have multiple main bodies", NULL);
 
@@ -1868,10 +1870,6 @@ void program(bool last_file)
         }
 
         _has_main_body = true;
-    }
-    else
-    {
-        printf("No main body in file\n");
     }
 }
 
@@ -1987,7 +1985,9 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < input_files_count; ++i)
     {
-        printf("Compiling %s...\n", input_files[i]);
+#ifdef PLATFORM_WIN        
+        printf("Compiling %s\n", input_files[i]);
+#endif        
         read_input_source(input_files[i]);
         program(i == input_files_count - 1);
         resolve();
