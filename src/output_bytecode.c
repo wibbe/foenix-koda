@@ -50,8 +50,7 @@
 #define CG_JMPFALSE     "2D,>"
 #define CG_JMPTRUE      "2E,>"
 #define CG_FOR          "2F,>"
-#define CG_FORDOWN      "30,>"
-#define CG_INCGLOB      "31,w"
+#define CG_INCGLOB      "31,a"
 #define CG_INCLOCL      "32,w"
 #define CG_WORD         ",w"
 
@@ -295,27 +294,22 @@ void write_bytecode(void)
                 break;
 
             case 0x2E:          // CG_JMPTRUE
-                fprintf(_output_target, "%06X: JMPTRUE             $%06X\n", idx, idx + text_fetch_short(idx + 1));
+                fprintf(_output_target, "%06X: JMPTRUE         $%06X\n", idx, idx + text_fetch_short(idx + 1));
                 idx += 2;
                 break;
 
             case 0x2F:          // CG_FOR
-                fprintf(_output_target, "%06X: FOR                 $%06X\n", idx, idx + text_fetch_short(idx + 1));
-                idx += 2;
-                break;
-
-            case 0x30:          // CG_FORDOWN
-                fprintf(_output_target, "%06X: FORDOWN             $%06X\n", idx, idx + text_fetch_short(idx + 1));
+                fprintf(_output_target, "%06X: FOR             $%06X\n", idx, idx + text_fetch_short(idx + 1) + 1);
                 idx += 2;
                 break;
 
             case 0x31:          // CG_INCGLOB
-                fprintf(_output_target, "%06X: INCGLOB             $%06X\n", idx, text_fetch(idx + 1));
+                fprintf(_output_target, "%06X: INCGLOB         $%06X\n", idx, text_fetch(idx + 1));
                 idx += 4;
                 break;
 
             case 0x32:                  // CG_INCLOCL
-                fprintf(_output_target, "%06X: INCLOCL             %d\n", idx, text_fetch(idx + 1));
+                fprintf(_output_target, "%06X: INCLOCL         %d\n", idx, text_fetch(idx + 1));
                 idx += 4;
                 break;
         }

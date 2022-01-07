@@ -28,13 +28,55 @@ enum {
 
     OUTPUT_FILE_TYPE_PGZ    = 1,
     OUTPUT_FILE_TYPE_SREC   = 2,
-    OUTPUT_FILE_TYPE_LIST   = 3,
 
     SYM_GLOBF               = 1,
     SYM_CONST               = 2,
     SYM_VECTOR              = 4,
     SYM_DECLARATION         = 8,
     SYM_FUNCTION            = 16,
+
+    MAXTBL                  = 128,
+    MAXLOOP                 = 100,
+
+    TOKEN_LEN               = 128,
+};
+
+enum {
+    ENDFILE = -1,
+    SYMBOL = 100, 
+    INTEGER, 
+    STRING,
+    ADDROF = 200, 
+    ASSIGN, 
+    BINOP, 
+    BYTEOP, 
+    COLON, 
+    COMMA, 
+    COND,
+    CONJ, 
+    DISJ, 
+    LBRACK, 
+    LPAREN, 
+    RBRACK, 
+    RPAREN, 
+    SEMI, 
+    UNOP,
+    BLOCK_START, 
+    BLOCK_END,
+    KCONST, 
+    KDECL, 
+    KELSE, 
+    KFOR,
+    KFUNC,
+    KHALT, 
+    KIF,
+    KMAIN,
+    KLEAVE, 
+    KLOOP, 
+    KRETURN, 
+    KSTRUCT, 
+    KVAR,
+    KWHILE
 };
 
 typedef unsigned char bool;
@@ -86,6 +128,13 @@ int _string_table_ptr = 0;
 symbol_t _symbol_table[SYMBOL_TABLE_SIZE];
 int _symbol_table_ptr = 0;
 
+bool _parsing_function = false;
+
+int _loop0 = -1;
+int _leaves[MAXLOOP];
+int _leaves_ptr = 0;
+int _loops[MAXLOOP];
+int _loops_ptr = 0;
 
 
 #ifdef T3X_OUTPUT_M68K
@@ -98,7 +147,7 @@ int _symbol_table_ptr = 0;
 void compiler_error(char *message, char *extra)
 {
 #if PLATFORM_WIN    
-    fprintf(stderr, "error: %s(%d): %s", _program_source_file, _current_line, message);
+    fprintf(stderr, "error: %s(%d): %s", _program_source_file, _current_line + 1, message);
     if (extra != NULL)
         fprintf(stderr, ": %s", extra);
     fputc('\n', stderr);
@@ -395,7 +444,7 @@ void generate(char *code, int value)
         }
         else
         {
-            emit_byte(hex(*code) * 16 + hex(code[1]));
+            emit_byte(hex(code[0]) * 16 + hex(code[1]));
         }
         code += 2;
     }
@@ -541,7 +590,6 @@ void reject(void)
     _program_source_ptr--;
 }
 
-#define TOKEN_LEN   128
 
 int _token;
 char _token_str[TOKEN_LEN];
@@ -561,16 +609,6 @@ typedef struct operator_t {
     char *code;
 } operator_t;
 
-
-enum
-{
-    ENDFILE = -1,
-    SYMBOL = 100, INTEGER, STRING,
-    ADDROF = 200, ASSIGN, BINOP, BYTEOP, COLON, COMMA, COND,
-    CONJ, DISJ, LBRACK, LPAREN, RBRACK, RPAREN, SEMI, UNOP,
-    KCONST, KDECL, KDO, KELSE, KEND, KFOR, KHALT, KIF,
-    KLEAVE, KLOOP, KRETURN, KSTRUCT, KVAR, KWHILE
-};
 
 operator_t _operators[] = {
     { 7, 1, "%",    BINOP,  CG_MOD      },
@@ -632,68 +670,47 @@ int skip_whitespace_and_comment(void)
 
 int find_keyword(char *str)
 {
-    if ('c' == str[0])
+    switch (str[0])
     {
-        if (!strcmp(str, "const")) return KCONST;
-        return 0;
-    }
-    if ('d' == str[0])
-    {
-        if (!strcmp(str, "do")) return KDO;
-        if (!strcmp(str, "decl")) return KDECL;
-        return 0;
-    }
-    if ('e' == str[0])
-    {
-        if (!strcmp(str, "else")) return KELSE;
-        if (!strcmp(str, "end")) return KEND;
-        return 0;
-    }
-    if ('f' == str[0])
-    {
-        if (!strcmp(str, "for")) return KFOR;
-        return 0;
-    }
-    if ('h' == str[0])
-    {
-        if (!strcmp(str, "halt")) return KHALT;
-        return 0;
-    }
-    if ('i' == str[0])
-    {
-        if (!strcmp(str, "if")) return KIF;
-        return 0;
-    }
-    if ('l' == str[0])
-    {
-        if (!strcmp(str, "leave")) return KLEAVE;
-        if (!strcmp(str, "loop")) return KLOOP;
-        return 0;
-    }
-    if ('m' == str[0])
-    {
-        if (!strcmp(str, "mod")) return BINOP;
-        return 0;
-    }
-    if ('r' == str[0])
-    {
-        if (!strcmp(str, "return")) return KRETURN;
-        return 0;
-    }
-    if ('s' == str[0])
-    {
-        if (!strcmp(str, "struct")) return KSTRUCT;
-        return 0;
-    }
-    if ('v' == str[0])
-    {
-        if (!strcmp(str, "var")) return KVAR;
-        return 0;
-    }
-    if ('w' == str[0])
-    {
-        if (!strcmp(str, "while")) return KWHILE;
-        return 0;
+        case 'c':
+            if (!strcmp(str, "const")) return KCONST;
+            return 0;
+        case 'd':
+            if (!strcmp(str, "decl")) return KDECL;
+            return 0;
+        case 'e':
+            if (!strcmp(str, "else")) return KELSE;
+            return 0;
+        case 'f':
+            if (!strcmp(str, "for")) return KFOR;
+            if (!strcmp(str, "func")) return KFUNC;
+            return 0;
+        case 'h':
+            if (!strcmp(str, "halt")) return KHALT;
+            return 0;
+        case 'i':
+            if (!strcmp(str, "if")) return KIF;
+            return 0;
+        case 'l':
+            if (!strcmp(str, "leave")) return KLEAVE;
+            if (!strcmp(str, "loop")) return KLOOP;
+            return 0;
+        case 'm':
+            if (!strcmp(str, "mod")) return BINOP;
+            if (!strcmp(str, "main")) return KMAIN;
+            return 0;
+        case 'r':
+            if (!strcmp(str, "return")) return KRETURN;
+            return 0;
+        case 's':
+            if (!strcmp(str, "struct")) return KSTRUCT;
+            return 0;
+        case 'v':
+            if (!strcmp(str, "var")) return KVAR;
+            return 0;
+        case 'w':
+            if (!strcmp(str, "while")) return KWHILE;
+            return 0;
     }
 
     return 0;
@@ -769,6 +786,11 @@ int scan(void)
         strcpy(_token_str, "end of file");
         return ENDFILE;
     }
+
+    if (c == '{')
+        return BLOCK_START;
+    if (c == '}')
+        return BLOCK_END;
 
     if (isalpha(c) || '_' == c || '.' == c)
     {
@@ -868,14 +890,6 @@ int scan(void)
 /*
  * Parser
  */
-
-#define MAXTBL      128
-#define MAXLOOP     100
-
-bool _parsing_function = false;
-int Loop0 = -1;
-int Leaves[MAXLOOP], Lvp = 0;
-int Loops[MAXLOOP], Llp = 0;
 
 
 void expect(int token, char *msg)
@@ -1108,77 +1122,90 @@ void resolve_forward(int loc, int fn)
     }
 }
 
-void compound_statement();
+void block_statement();
 void statement(void);
 
 
 void function_declaration(void)
 {
-    int l_base, l_addr = 2*BPW;
-    int i, na = 0;
-    int oyp;
-    symbol_t    *y;
+    int local_addr = 2 * BPW;
+    int number_arguments = 0;
 
     generate(CG_JUMPFWD, 0);
 
-    y = add(_token_str, SYM_GLOBF | SYM_FUNCTION, _text_buffer_ptr);
+    _token = scan();
+    symbol_t *func_sym = add(_token_str, SYM_GLOBF | SYM_FUNCTION, _text_buffer_ptr);
+
     _token = scan();
     expect_left_paren();
-    oyp = _symbol_table_ptr;
-    l_base = _symbol_table_ptr;
+
+    int old_symbol_table_ptr = _symbol_table_ptr;
+    int local_base = _symbol_table_ptr;
+
     while (SYMBOL == _token)
     {
-        add(_token_str, 0, l_addr);
-        l_addr += BPW;
-        na++;
+        add(_token_str, 0, local_addr);
+        local_addr += BPW;
+        number_arguments++;
         _token = scan();
         if (_token != COMMA)
             break;
         _token = scan();
     }
 
-    for (i = l_base; i < _symbol_table_ptr; i++)
+    for (int i = local_base; i < _symbol_table_ptr; i++)
     {
-        _symbol_table[i].value = 12+na*BPW - _symbol_table[i].value;
+        _symbol_table[i].value = 12+number_arguments*BPW - _symbol_table[i].value;
     }
 
-    if (y->flags & SYM_DECLARATION)
+    if (func_sym->flags & SYM_DECLARATION)
     {
-        resolve_forward(y->value, _text_buffer_ptr);
-        if (na != y->flags >> 8)
-            compiler_error("redefinition with different type", y->name);
+        resolve_forward(func_sym->value, _text_buffer_ptr);
+        if (number_arguments != func_sym->flags >> 8)
+            compiler_error("redefinition with different type", func_sym->name);
 
-        y->flags &= ~SYM_DECLARATION;
-        y->flags |= SYM_FUNCTION;
-        y->value = _text_buffer_ptr;
+        func_sym->flags &= ~SYM_DECLARATION;
+        func_sym->flags |= SYM_FUNCTION;
+        func_sym->value = _text_buffer_ptr;
     }
 
     expect_right_paren();
-    y->flags |= na << 8;
+
+    func_sym->flags |= number_arguments << 8;
     generate(CG_ENTER, 0);
     _parsing_function = true;
+    
     statement();
+
     _parsing_function = false;
     generate(CG_CLEAR, 0);
     generate(CG_EXIT, 0);
-
     generate(CG_RESOLV, 0);
-    _symbol_table_ptr = oyp;
+
+    _symbol_table_ptr = old_symbol_table_ptr;
     _local_frame_ptr = 0;
 }
 
 void declaration(int glob)
 {
-    if (KVAR == _token)
-        var_declaration(glob);
-    else if (KCONST == _token)
-        const_declaration(glob);
-    else if (KSTRUCT== _token)
-        struct_declaration(glob);
-    else if (KDECL == _token)
-        forward_declaration();
-    else
-        function_declaration();
+    switch (_token)
+    {
+        case KVAR:
+            var_declaration(glob);
+            break;
+        case KCONST:
+            const_declaration(glob);
+            break;
+        case KSTRUCT:
+            struct_declaration(glob);
+            break;
+        case KDECL:
+            forward_declaration();
+            break;
+        default:
+            function_declaration();
+            break;
+    }
 }
 
 void expression(int clr);
@@ -1220,7 +1247,7 @@ void function_call(symbol_t *fn)
     }
     else
     {
-        generate(CG_CALL, TEXT_VADDR + fn->value); //-_text_buffer_ptr-5);  /* TP-BPW+1 */
+        generate(CG_CALL, TEXT_VADDR + fn->value);
     }
 
     if (argument_count != 0)
@@ -1563,8 +1590,6 @@ void expression(int clr)
     }
 }
 
-void statement(void);
-
 void halt_statement(void)
 {
     _token = scan();
@@ -1599,8 +1624,7 @@ void if_statement()
     generate(CG_JMPFALSE, 0);
     expect_right_paren();
 
-    while (_token != KELSE && _token != KEND)
-        statement();
+    statement();
 
     if (_token == KELSE)
     {
@@ -1609,24 +1633,22 @@ void if_statement()
         generate(CG_RESOLV, 0);
 
         _token = scan();
-        while (_token != KEND)
-            statement();
+        statement();
     }
 
     generate(CG_RESOLV, 0);
-    _token = scan();
 }
 
 void while_statement(void)
 {
     int olp, olv;
 
-    olp = Loop0;
-    olv = Lvp;
+    olp = _loop0;
+    olv = _leaves_ptr;
     _token = scan();
     expect_left_paren();
     generate(CG_MARK, 0);
-    Loop0 = tos();
+    _loop0 = tos();
     expression(1);
     expect_right_paren();
     generate(CG_JMPFALSE, 0);
@@ -1635,117 +1657,110 @@ void while_statement(void)
     generate(CG_JUMPBACK, 0);
     generate(CG_RESOLV, 0);
 
-    while (Lvp > olv)
+    while (_leaves_ptr > olv)
     {
-        push(Leaves[Lvp-1]);
+        push(_leaves[_leaves_ptr-1]);
         generate(CG_RESOLV, 0);
-        Lvp--;
+        _leaves_ptr--;
     }
-    Loop0 = olp;
+    _loop0 = olp;
 }
 
 void for_statement(void)
 {
-    symbol_t    *y;
-    int step = 1;
-    int oll, olp, olv;
-    int test;
-
     _token = scan();
-    oll = Llp;
-    olv = Lvp;
-    olp = Loop0;
-    Loop0 = 0;
+    int old_loops_ptr = _loops_ptr;
+    int old_leaves_ptr = _leaves_ptr;
+    int old_loop0 = _loop0;
+
+    _loop0 = 0;
+
     expect_left_paren();
     expect(SYMBOL, "symbol");
-    y = lookup(_token_str, 0);
+    symbol_t *variable = lookup(_token_str, 0);
     _token = scan();
 
-    if (y->flags & (SYM_CONST|SYM_FUNCTION|SYM_DECLARATION))
-        compiler_error("unexpected type", y->name);
+    if (variable->flags & (SYM_CONST | SYM_FUNCTION | SYM_DECLARATION))
+        compiler_error("unexpected type in for loop", variable->name);
 
     expect_equal_sign();
     expression(1);
-    store(y);
+    store(variable);
     expect(COMMA, "','");
     _token = scan();
     generate(CG_MARK, 0);
-    test = tos();
-    load(y);
+    
+    int test = tos();
+
+    load(variable);
     expression(0);
 
-    if (COMMA == _token)
-    {
-        _token = scan();
-        step = const_value();
-    }
-
-    generate(step<0? CG_FORDOWN: CG_FOR, 0);
+    generate(CG_FOR, 0);
     expect_right_paren();
+
     statement();
 
-    while (Llp > oll)
+    while (_loops_ptr > old_loops_ptr)
     {
-        push(Loops[Llp-1]);
+        push(_loops[_loops_ptr-1]);
         generate(CG_RESOLV, 0);
-        Llp--;
+        _loops_ptr--;
     }
 
-    if (y->flags & SYM_GLOBF)
-        generate(CG_INCGLOB, y->value);
+    if (variable->flags & SYM_GLOBF)
+        generate(CG_INCGLOB, variable->value);
     else
-        generate(CG_INCLOCL, y->value);
+        generate(CG_INCLOCL, variable->value);
 
-    generate(CG_WORD, step);
     swap();
     generate(CG_JUMPBACK, 0);
     generate(CG_RESOLV, 0);
 
-    while (Lvp > olv)
+    while (_leaves_ptr > old_leaves_ptr)
     {
-        push(Leaves[Lvp-1]);
+        push(_leaves[_leaves_ptr-1]);
         generate(CG_RESOLV, 0);
-        Lvp--;
+        _leaves_ptr--;
     }
 
-    Llp = oll;
-    Loop0 = olp;
+    _loops_ptr = old_loops_ptr;
+    _loop0 = old_loop0;
 }
 
 void leave_statement(void)
 {
-    if (Loop0 < 0)
+    if (_loop0 < 0)
         compiler_error("LEAVE not in loop context", 0);
 
     _token = scan();
     expect_semi();
 
-    if (Lvp >= MAXLOOP)
+    if (_leaves_ptr >= MAXLOOP)
         compiler_error("too many LEAVEs", NULL);
 
     generate(CG_JUMPFWD, 0);
-    Leaves[Lvp++] = pop();
+    _leaves[_leaves_ptr++] = pop();
 }
 
 void loop_statement(void)
 {
-    if (Loop0 < 0)
+    if (_loop0 < 0)
         compiler_error("LOOP not in loop context", 0);
 
     _token = scan();
     expect_semi();
 
-    if (Loop0 > 0)
+    if (_loop0 > 0)
     {
-        push(Loop0);
+        push(_loop0);
         generate(CG_JUMPBACK, 0);
     }
     else
     {
-        if (Llp >= MAXLOOP)
+        if (_loops_ptr >= MAXLOOP)
             compiler_error("too many LOOPs", NULL);
         generate(CG_JUMPFWD, 0);
-        Loops[Llp++] = pop();
+        _loops[_loops_ptr++] = pop();
     }
 }
 
@@ -1804,8 +1819,8 @@ void statement(void)
         case KWHILE:
             while_statement();
             break;
-        case KDO:
-            compound_statement();
+        case BLOCK_START:
+            block_statement();
             break;
         case SYMBOL:
             assignment_or_call();
@@ -1819,9 +1834,9 @@ void statement(void)
     }
 }
 
-void compound_statement(void)
+void block_statement(void)
 {
-    expect(KDO, "DO");
+    expect(BLOCK_START, "{");
     _token = scan();
 
     int old_symbol_table_ptr = _symbol_table_ptr;
@@ -1830,7 +1845,7 @@ void compound_statement(void)
     while (KVAR == _token || KCONST == _token || KSTRUCT == _token)
         declaration(0);
 
-    while (_token != KEND)
+    while (_token != BLOCK_END)
         statement();
 
 
@@ -1847,20 +1862,21 @@ void program(bool last_file)
 {
     int i;
 
+    _token = scan();
+    while (_token == KVAR || _token == KCONST || _token == KFUNC || _token == KDECL || _token == KSTRUCT)
+        declaration(SYM_GLOBF);
+
     if (last_file)
         generate(CG_INIT, 0);
 
-    _token = scan();
-    while (KVAR == _token || KCONST == _token || SYMBOL == _token || KDECL == _token || KSTRUCT == _token)
-        declaration(SYM_GLOBF);
-
     // Do we have a main body for the program?
-    if (_token == KDO)
+    if (_token == KMAIN)
     {
         if (_has_main_body)
             compiler_error("not allowed to have multiple main bodies", NULL);
 
-        compound_statement();
+        _token = scan();
+        block_statement();
         generate(CG_HALT, 0);
 
         for (i = 0; i < _symbol_table_ptr; i++)
@@ -1890,15 +1906,6 @@ void init(void)
     builtin("t.syscall1", 2, CG_P_SYSCALL1);
     builtin("t.syscall2", 3, CG_P_SYSCALL2);
     builtin("t.syscall3", 4, CG_P_SYSCALL3);
-
-    /*
-    builtin("t.read", 3, CG_P_READ);
-    builtin("t.write", 3, CG_P_WRITE);
-    builtin("t.memcomp", 3, CG_P_MEMCOMP);
-    builtin("t.memcopy", 3, CG_P_MEMCOPY);
-    builtin("t.memfill", 3, CG_P_MEMFILL);
-    builtin("t.memscan", 3, CG_P_MEMSCAN);
-    */
 }
 
 void print_usage(char *name)

@@ -41,7 +41,6 @@
 ; CG_JMPFALSE w		if S0 = 0, then I: = w; always: P: = P + 1
 ; CG_JMPTRUE w		if S0 ≠ 0, then I: = w; always: P: = P + 1
 ; CG_FOR w		if S0 ≥ A, then I: = w; always: P: = P + 1
-; CG_FORDOWN w		if S0 ≤ A, then I: = w; always: P: = P + 1
 ; CG_ENTER		P: = P − 1; S0: = F; F: = P
 ; CG_EXIT			F: = S0; I: = S1; P: = P + 2
 ; CG_HALT w		halt program execution, return w
@@ -171,6 +170,12 @@ CG_INCGLOB:	; a 	[a]: = [a] + 1
 CG_INCLOCL: 	;w  	[F + w]: = [F + w] + 1
 	add.l #1,$FED(a6)
 
+CG_DECGLOB:	; a 	[a]: = [a] + 1
+	sub.l #1,$FEDCAB98
+
+CG_DECLOCL: 	;w  	[F + w]: = [F + w] + 1
+	sub.l #1,$FED(a6)
+
 CG_ALLOC:	; w	P: = P − w
 	suba.l #$FEDCBA98,a7
 
@@ -227,11 +232,6 @@ CG_FOR:		; w	if S0 ≥ A, then I: = w; always: P: = P + 1
 	move.l (sp)+,d1
 	cmp.l d1,d0
 	bge $ABCD
-
-CG_FORDOWN:	; w	if S0 ≤ A, then I: = w; always: P: = P + 1
-	move.l (sp)+,d1
-	cmp.l d1,d0
-	bls $ABCD
 
 CG_ENTER:	;	P: = P − 1; S0: = F; F: = P
 	move.l a6,-(sp)
@@ -307,3 +307,12 @@ CG_EQ:		; if S0 = A then A: = −1 else A: = 0; always: P: = P + 1
 	bne eq_done
 	move.l #$FFFFFFFF,d0
 eq_done:
+
+CG_NEQ: 	; if S0 ≠ A then A: = −1 else A: = 0; always: P: = P + 1
+	move.l (sp)+,d1
+	move.l d0,d2
+	move.l #0,d0
+	cmp.l d1,d2
+	beq neq_done
+	move.l #$FFFFFFFF,d0
+neq_done:
