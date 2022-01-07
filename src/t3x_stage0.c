@@ -59,7 +59,6 @@ enum {
     LPAREN, 
     RBRACK, 
     RPAREN, 
-    SEMI, 
     UNOP,
     BLOCK_START, 
     BLOCK_END,
@@ -614,7 +613,6 @@ operator_t _operators[] = {
     { 7, 1, "%",    BINOP,  CG_MOD      },
     { 6, 1, "+",    BINOP,  CG_ADD      },
     { 7, 1, "*",    BINOP,  CG_MUL      },
-    { 0, 1, ";",    SEMI,   NULL        },
     { 0, 1, ",",    COMMA,  NULL        },
     { 0, 1, "(",    LPAREN, NULL        },
     { 0, 1, ")",    RPAREN, NULL        },
@@ -776,7 +774,7 @@ void find_operator(char *s)
     internal_error("operator not found", s);
 }
 
-int scan(void)
+int scan_next_token(void)
 {
     int c, i, k, sgn;
 
@@ -887,6 +885,11 @@ int scan(void)
     return scan_operator(c);
 }
 
+void scan(void)
+{
+    _token = scan_next_token();
+}
+
 /*
  * Parser
  */
@@ -906,25 +909,19 @@ void expect_equal_sign(void)
 {
     if (_token != ASSIGN || _token_op_id != _equal_op)
         expect(0, "'='");
-    _token = scan();
-}
-
-void expect_semi(void)
-{
-    expect(SEMI, "';'");
-    _token = scan();
+    scan();
 }
 
 void expect_left_paren(void)
 {
     expect(LPAREN, "'('");
-    _token = scan();
+    scan();
 }
 
 void expect_right_paren(void)
 {
     expect(RPAREN, "')'");
-    _token = scan();
+    scan();
 }
 
 int const_factor(void)
@@ -936,13 +933,13 @@ int const_factor(void)
     if (INTEGER == _token)
     {
         value = _token_value;
-        _token = scan();
+        scan();
         return value;
     }
     if (SYMBOL == _token)
     {
         sym = lookup(_token_str, SYM_CONST);
-        _token = scan();
+        scan();
         return sym->value;
     }
     compiler_error("constant value expected", _token_str);
@@ -956,12 +953,12 @@ int const_value(void)
     value = const_factor();
     if (BINOP == _token && _mul_op == _token_op_id)
     {
-        _token = scan();
+        scan();
         value *= const_factor();
     }
     else if (BINOP == _token && _add_op == _token_op_id)
     {
-        _token = scan();
+        scan();
         value += const_factor();
     }
     return value;
@@ -972,7 +969,7 @@ void var_declaration(int glob)
     symbol_t *y;
     int size;
 
-    _token = scan();
+    scan();
     while (1)
     {
         expect(SYMBOL, "symbol");
@@ -982,20 +979,20 @@ void var_declaration(int glob)
         else
             y = add(_token_str, 0, _local_frame_ptr);
 
-        _token = scan();
+        scan();
         if (LBRACK == _token)
         {
-            _token = scan();
+            scan();
             size = const_value();
             if (size < 1)
                 compiler_error("invalid size", NULL);
             y->flags |= SYM_VECTOR;
             expect(RBRACK, "']'");
-            _token = scan();
+            scan();
         }
         else if (BYTEOP == _token)
         {
-            _token = scan();
+            scan();
             size = const_value();
             if (size < 1)
                 compiler_error("invalid size", NULL);
@@ -1027,32 +1024,29 @@ void var_declaration(int glob)
         if (_token != COMMA)
             break;
 
-        _token = scan();
+        scan();
     }
-    expect_semi();
 }
 
 void const_declaration(int glob)
 {
     symbol_t    *y;
 
-    _token = scan();
+    scan();
     while (1)
     {
         expect(SYMBOL, "symbol");
         y = add(_token_str, glob | SYM_CONST, 0);
 
-        _token = scan();
+        scan();
         expect_equal_sign();
         y->value = const_value();
 
         if (_token != COMMA)
             break;
 
-        _token = scan();
+        scan();
     }
-
-    expect_semi();
 }
 
 void struct_declaration(int glob)
@@ -1060,10 +1054,10 @@ void struct_declaration(int glob)
     symbol_t *sym;
     int i;
 
-    _token = scan();
+    scan();
     expect(SYMBOL, "symbol");
     sym = add(_token_str, glob | SYM_CONST, 0);
-    _token = scan();
+    scan();
     i = 0;
     expect_equal_sign();
 
@@ -1071,16 +1065,15 @@ void struct_declaration(int glob)
     {
         expect(SYMBOL, "symbol");
         add(_token_str, glob | SYM_CONST, i++);
-        _token = scan();
+        scan();
 
         if (_token != COMMA)
             break;
 
-        _token = scan();
+        scan();
     }
 
     sym->value = i;
-    expect_semi();
 }
 
 void forward_declaration(void)
@@ -1088,12 +1081,12 @@ void forward_declaration(void)
     symbol_t *sym;
     int n;
 
-    _token = scan();
+    scan();
     while (1)
     {
         expect(SYMBOL, "symbol");
         sym = add(_token_str, SYM_GLOBF|SYM_DECLARATION, 0);
-        _token = scan();
+        scan();
         expect_left_paren();
         n = const_value();
         sym->flags |= n << 8;
@@ -1105,9 +1098,8 @@ void forward_declaration(void)
         if (_token != COMMA)
             break;
 
-        _token = scan();
+        scan();
     }
-    expect_semi();
 }
 
 void resolve_forward(int loc, int fn)
@@ -1133,10 +1125,10 @@ void function_declaration(void)
 
     generate(CG_JUMPFWD, 0);
 
-    _token = scan();
+    scan();
     symbol_t *func_sym = add(_token_str, SYM_GLOBF | SYM_FUNCTION, _text_buffer_ptr);
 
-    _token = scan();
+    scan();
     expect_left_paren();
 
     int old_symbol_table_ptr = _symbol_table_ptr;
@@ -1147,10 +1139,10 @@ void function_declaration(void)
         add(_token_str, 0, local_addr);
         local_addr += BPW;
         number_arguments++;
-        _token = scan();
+        scan();
         if (_token != COMMA)
             break;
-        _token = scan();
+        scan();
     }
 
     for (int i = local_base; i < _symbol_table_ptr; i++)
@@ -1175,7 +1167,7 @@ void function_declaration(void)
     generate(CG_ENTER, 0);
     _parsing_function = true;
     
-    statement();
+    block_statement();
 
     _parsing_function = false;
     generate(CG_CLEAR, 0);
@@ -1214,7 +1206,7 @@ void function_call(symbol_t *fn)
 {
     int argument_count = 0;
 
-    _token = scan();
+    scan();
     if (NULL == fn)
         compiler_error("call of non-function", NULL);
 
@@ -1225,7 +1217,7 @@ void function_call(symbol_t *fn)
 
         if (COMMA != _token)
             break;
-        _token = scan();
+        scan();
         
         if (RPAREN == _token)
             compiler_error("syntax error", _token_str);
@@ -1235,7 +1227,7 @@ void function_call(symbol_t *fn)
         compiler_error("wrong number of arguments", fn->name);
 
     expect(RPAREN, "')'");
-    _token = scan();
+    scan();
 
     if (loaded())
         spill();
@@ -1277,7 +1269,7 @@ int make_table(void)
     int tbl[MAXTBL], af[MAXTBL];
     int dynamic = 0;
 
-    _token = scan();
+    scan();
     n = 0;
 
     while (_token != RBRACK)
@@ -1287,7 +1279,7 @@ int make_table(void)
 
         if (LPAREN == _token)
         {
-            _token = scan();
+            scan();
             dynamic = 1;
             continue;
         }
@@ -1299,7 +1291,7 @@ int make_table(void)
             af[n++] = _text_buffer_ptr - BPW;
             if (RPAREN == _token)
             {
-                _token = scan();
+                scan();
                 dynamic = 0;
             }
         }
@@ -1312,7 +1304,7 @@ int make_table(void)
         {
             tbl[n] = make_string(_token_str);
             af[n++] = 1;
-            _token = scan();
+            scan();
         }
         else if (LBRACK == _token)
         {
@@ -1327,11 +1319,11 @@ int make_table(void)
         if (_token != COMMA)
             break;
 
-        _token = scan();
+        scan();
     }
 
     expect(RBRACK, "']'");
-    _token = scan();
+    scan();
     loc = _data_buffer_ptr;
 
     for (i = 0; i < n; i++)
@@ -1374,7 +1366,7 @@ symbol_t *address(int lv, int *bp)
     symbol_t    *y;
 
     y = lookup(_token_str, 0);
-    _token = scan();
+    scan();
     if (y->flags & SYM_CONST)
     {
         if (lv > 0) compiler_error("invalid address", y->name);
@@ -1397,10 +1389,10 @@ symbol_t *address(int lv, int *bp)
     while (LBRACK == _token)
     {
         *bp = 0;
-        _token = scan();
+        scan();
         expression(0);
         expect(RBRACK, "']'");
-        _token = scan();
+        scan();
         y = NULL;
         generate(CG_INDEX, 0);
         if (LBRACK == _token || BYTEOP == _token || 0 == lv)
@@ -1410,7 +1402,7 @@ symbol_t *address(int lv, int *bp)
     if (BYTEOP == _token)
     {
         *bp = 1;
-        _token = scan();
+        scan();
         factor();
         y = NULL;
         generate(CG_INDXB, 0);
@@ -1430,7 +1422,7 @@ void factor(void)
     {
         spill();
         generate(CG_LDVAL, _token_value);
-        _token = scan();
+        scan();
     }
     else if (SYMBOL == _token)
     {
@@ -1444,7 +1436,7 @@ void factor(void)
     {
         spill();
         generate(CG_LDADDR, make_string(_token_str));
-        _token = scan();
+        scan();
     }
     else if (LBRACK == _token)
     {
@@ -1453,7 +1445,7 @@ void factor(void)
     }
     else if (ADDROF == _token)
     {
-        _token = scan();
+        scan();
         y = address(2, &b);
         if (NULL == y)
         {
@@ -1475,20 +1467,20 @@ void factor(void)
         op = _token_op_id;
         if (_token_op_id != _minus_op)
             compiler_error("syntax error", _token_str);
-        _token = scan();
+        scan();
         factor();
         generate(CG_NEG, 0);
     }
     else if (UNOP == _token)
     {
         op = _token_op_id;
-        _token = scan();
+        scan();
         factor();
         generate(_operators[op].code, 0);
     }
     else if (LPAREN == _token)
     {
-        _token = scan();
+        scan();
         expression(0);
         expect_right_paren();
     }
@@ -1516,7 +1508,7 @@ void arith(void)
             stack_ptr = emitop(operator_stack, stack_ptr);
 
         operator_stack[stack_ptr++] = _token_op_id;
-        _token = scan();
+        scan();
         factor();
     }
 
@@ -1531,7 +1523,7 @@ void conjn(void)
     arith();
     while (CONJ == _token)
     {
-        _token = scan();
+        scan();
         generate(CG_JMPFALSE, 0);
         clear();
         arith();
@@ -1552,7 +1544,7 @@ void disjn(void)
     conjn();
     while (DISJ == _token)
     {
-        _token = scan();
+        scan();
         generate(CG_JMPTRUE, 0);
         clear();
         conjn();
@@ -1577,11 +1569,11 @@ void expression(int clr)
 
     if (COND == _token)
     {
-        _token = scan();
+        scan();
         generate(CG_JMPFALSE, 0);
         expression(1);
         expect(COLON, "':'");
-        _token = scan();
+        scan();
         generate(CG_JUMPFWD, 0);
         swap();
         generate(CG_RESOLV, 0);
@@ -1592,39 +1584,34 @@ void expression(int clr)
 
 void halt_statement(void)
 {
-    _token = scan();
+    scan();
     generate(CG_HALT, const_value());
-    expect_semi();
 }
 
 void return_statement(void)
 {
-    _token = scan();
+    scan();
 
     if (!_parsing_function)
-        compiler_error("can't return from main body", 0);
+        compiler_error("can't return from main", 0);
 
-    if (SEMI == _token)
-        generate(CG_CLEAR, 0);
-    else
-        expression(1);
+    expression(1);
 
     if (_local_frame_ptr != 0)
         generate(CG_DEALLOC, -_local_frame_ptr);
 
     generate(CG_EXIT, 0);
-    expect_semi();
 }
 
 void if_statement()
 {
-    _token = scan();
+    scan();
     expect_left_paren();
     expression(1);
     generate(CG_JMPFALSE, 0);
     expect_right_paren();
 
-    statement();
+    block_statement();
 
     if (_token == KELSE)
     {
@@ -1632,7 +1619,7 @@ void if_statement()
         swap();
         generate(CG_RESOLV, 0);
 
-        _token = scan();
+        scan();
         statement();
     }
 
@@ -1645,7 +1632,7 @@ void while_statement(void)
 
     olp = _loop0;
     olv = _leaves_ptr;
-    _token = scan();
+    scan();
     expect_left_paren();
     generate(CG_MARK, 0);
     _loop0 = tos();
@@ -1668,7 +1655,7 @@ void while_statement(void)
 
 void for_statement(void)
 {
-    _token = scan();
+    scan();
     int old_loops_ptr = _loops_ptr;
     int old_leaves_ptr = _leaves_ptr;
     int old_loop0 = _loop0;
@@ -1678,7 +1665,7 @@ void for_statement(void)
     expect_left_paren();
     expect(SYMBOL, "symbol");
     symbol_t *variable = lookup(_token_str, 0);
-    _token = scan();
+    scan();
 
     if (variable->flags & (SYM_CONST | SYM_FUNCTION | SYM_DECLARATION))
         compiler_error("unexpected type in for loop", variable->name);
@@ -1687,7 +1674,7 @@ void for_statement(void)
     expression(1);
     store(variable);
     expect(COMMA, "','");
-    _token = scan();
+    scan();
     generate(CG_MARK, 0);
     
     int test = tos();
@@ -1698,7 +1685,7 @@ void for_statement(void)
     generate(CG_FOR, 0);
     expect_right_paren();
 
-    statement();
+    block_statement();
 
     while (_loops_ptr > old_loops_ptr)
     {
@@ -1732,8 +1719,7 @@ void leave_statement(void)
     if (_loop0 < 0)
         compiler_error("LEAVE not in loop context", 0);
 
-    _token = scan();
-    expect_semi();
+    scan();
 
     if (_leaves_ptr >= MAXLOOP)
         compiler_error("too many LEAVEs", NULL);
@@ -1747,8 +1733,7 @@ void loop_statement(void)
     if (_loop0 < 0)
         compiler_error("LOOP not in loop context", 0);
 
-    _token = scan();
-    expect_semi();
+    scan();
 
     if (_loop0 > 0)
     {
@@ -1766,32 +1751,30 @@ void loop_statement(void)
 
 void assignment_or_call(void)
 {
-    symbol_t    *y;
     int b;
 
     clear();
-    y = address(1, &b);
+    symbol_t *sym = address(1, &b);
 
     if (LPAREN == _token)
     {
-        function_call(y);
+        function_call(sym);
     }
     else if (ASSIGN == _token)
     {
-        _token = scan();
+        scan();
         expression(0);
-        if (NULL == y)
+        if (NULL == sym)
             generate(b? CG_STINDB: CG_STINDR, 0);
-        else if (y->flags & (SYM_FUNCTION|SYM_DECLARATION|SYM_CONST|SYM_VECTOR))
-            compiler_error("bad location", y->name);
+        else if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST | SYM_VECTOR))
+            compiler_error("bad location", sym->name);
         else
-            store(y);
+            store(sym);
     }
     else
     {
         compiler_error("syntax error", _token_str);
     }
-    expect_semi();
 }
 
 void statement(void)
@@ -1825,9 +1808,6 @@ void statement(void)
         case SYMBOL:
             assignment_or_call();
             break;
-        case SEMI:
-            _token = scan();
-            break;
         default:
             expect(0, "statement");
             break;
@@ -1837,7 +1817,7 @@ void statement(void)
 void block_statement(void)
 {
     expect(BLOCK_START, "{");
-    _token = scan();
+    scan();
 
     int old_symbol_table_ptr = _symbol_table_ptr;
     int old_local_frame_ptr = _local_frame_ptr;
@@ -1849,7 +1829,7 @@ void block_statement(void)
         statement();
 
 
-    _token = scan();
+    scan();
 
     if (old_local_frame_ptr - _local_frame_ptr != 0)
         generate(CG_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
@@ -1862,7 +1842,7 @@ void program(bool last_file)
 {
     int i;
 
-    _token = scan();
+    scan();
     while (_token == KVAR || _token == KCONST || _token == KFUNC || _token == KDECL || _token == KSTRUCT)
         declaration(SYM_GLOBF);
 
@@ -1875,7 +1855,7 @@ void program(bool last_file)
         if (_has_main_body)
             compiler_error("not allowed to have multiple main bodies", NULL);
 
-        _token = scan();
+        scan();
         block_statement();
         generate(CG_HALT, 0);
 
