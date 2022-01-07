@@ -292,7 +292,7 @@ int hex(int ch)
     if (isdigit(ch))
         return ch - '0';
     else
-        return ch - 'A' + 10;
+        return tolower(ch) - 'a' + 10;
 }
 
 void emit_byte(unsigned char value)
@@ -694,7 +694,6 @@ int find_keyword(char *str)
             if (!strcmp(str, "loop")) return KLOOP;
             return 0;
         case 'm':
-            if (!strcmp(str, "mod")) return BINOP;
             if (!strcmp(str, "main")) return KMAIN;
             return 0;
         case 'r':
@@ -776,24 +775,22 @@ void find_operator(char *s)
 
 int scan_next_token(void)
 {
-    int c, i, k, sgn;
-
-    c = skip_whitespace_and_comment();
-    if (c == EOF)
+    int ch = skip_whitespace_and_comment();
+    if (ch == EOF)
     {
         strcpy(_token_str, "end of file");
         return ENDFILE;
     }
 
-    if (c == '{')
+    if (ch == '{')
         return BLOCK_START;
-    if (c == '}')
+    if (ch == '}')
         return BLOCK_END;
 
-    if (isalpha(c) || '_' == c || '.' == c)
+    if (isalpha(ch) || '_' == ch || '.' == ch)
     {
-        i = 0;
-        while (isalpha(c) || '_' == c || '.' == c || isdigit(c))
+        int i = 0;
+        while (isalpha(ch) || '_' == ch || '.' == ch || isdigit(ch))
         {
             if (i >= TOKEN_LEN - 1)
             {
@@ -801,43 +798,63 @@ int scan_next_token(void)
                 compiler_error("symbol too long", _token_str);
             }
 
-            _token_str[i++] = c;
-            c = read_lower_char();
+            _token_str[i++] = ch;
+            ch = read_lower_char();
         }
 
         _token_str[i] = 0;
         reject();
-        if ((k = find_keyword(_token_str)) != 0)
-        {
-            if (BINOP == k)
-                find_operator(_token_str);
-            return k;
-        }
+
+        int keyword = find_keyword(_token_str);
+
+        if (keyword != 0)
+            return keyword;
+
         return SYMBOL;
     }
 
-    // TODO: Add support for hex encoded numbers here
-    if (isdigit(c) || '%' == c)
+    if (isdigit(ch) || ch == '-')
     {
-        sgn = 1;
-        i = 0;
+        int sign = 1;
+        int i = 0;
+        int base = 10;
 
-        if ('%' == c)
+        if (ch == '-')
         {
-            sgn = -1;
-            c = read_lower_char();
-            _token_str[i++] = c;
+            sign = -1;
+            ch = read_lower_char();
+            _token_str[i++] = ch;
 
-            if (!isdigit(c))
+            if (!isdigit(ch))
             {
                 reject();
                 return scan_operator('-');
             }
         }
+        else if (ch == '0')
+        {
+            _token_str[i++] = ch;
+            ch = read_lower_char();
+
+            if (ch == 'x')
+            {
+                base = 16;
+                _token_str[i++] = ch;
+
+                ch = read_lower_char();
+
+                if (!isdigit(ch) && (tolower(ch) < 'a' || tolower(ch) > 'f'))
+                {
+                    _token_str[i++] = ch;
+                    _token_str[i] = 0;
+                    compiler_error("invalid number", _token_str);
+                }
+            }
+        }
 
         _token_value = 0;
 
-        while (isdigit(c))
+        while (isdigit(ch) || (base == 16 && tolower(ch) >= 'a' && tolower(ch) <= 'f'))
         {
             if (i >= TOKEN_LEN-1)
             {
@@ -845,18 +862,27 @@ int scan_next_token(void)
                 compiler_error("integer too long", _token_str);
             }
 
-            _token_str[i++] = c;
-            _token_value = _token_value * 10 + c - '0';
-            c = read_lower_char();
+            _token_str[i++] = ch;
+            _token_value = _token_value * base + (base == 16 ? hex(ch) : ch - '0');
+            ch = read_lower_char();
+        }
+
+
+        if (base == 16 && tolower(ch) > 'f' && tolower(ch) <= 'z')
+        {
+            _token_str[i++] = ch;
+            _token_str[i] = 0;
+            compiler_error("invalid number", _token_str);
         }
 
         _token_str[i] = 0;
+
         reject();
-        _token_value = _token_value * sgn;
+        _token_value = _token_value * sign;
         return INTEGER;
     }
 
-    if ('\'' == c)
+    if ('\'' == ch)
     {
         _token_value = read_encoded_char();
         if (read_lower_char() != '\'')
@@ -864,25 +890,25 @@ int scan_next_token(void)
         return INTEGER;
     }
 
-    if ('"' == c)
+    if ('"' == ch)
     {
-        i = 0;
-        c = read_encoded_char();
-        while (c != '"' && c != EOF)
+        int i = 0;
+        ch = read_encoded_char();
+        while (ch != '"' && ch != EOF)
         {
-            if (i >= TOKEN_LEN-1)
+            if (i >= TOKEN_LEN - 1)
             {
                 _token_str[i] = 0;
                 compiler_error("string too long", _token_str);
             }
-            _token_str[i++] = c & (META-1);
-            c = read_encoded_char();
+            _token_str[i++] = ch & (META-1);
+            ch = read_encoded_char();
         }
         _token_str[i] = 0;
         return STRING;
     }
 
-    return scan_operator(c);
+    return scan_operator(ch);
 }
 
 void scan(void)
