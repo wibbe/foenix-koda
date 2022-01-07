@@ -728,7 +728,7 @@ int scan_operator(int ch)
             {
                 _token_op_id = op_idx;
                 _token_str[name_idx] = ch;
-                ch = read_lower_char();
+                ch = read_char();
                 name_idx++;
 
                 // Make sure we check the same operator one more time.
@@ -756,21 +756,22 @@ int scan_operator(int ch)
     return _operators[_token_op_id].tok;
 }
 
-void find_operator(char *s)
+void find_operator(char *name)
 {
     int i;
 
     i = 0;
     while (_operators[i].len > 0)
     {
-        if (!strcmp(s, _operators[i].name))
+        if (!strcmp(name, _operators[i].name))
         {
             _token_op_id = i;
             return;
         }
         i++;
     }
-    internal_error("operator not found", s);
+
+    internal_error("operator not found", name);
 }
 
 int scan_next_token(void)
@@ -787,10 +788,10 @@ int scan_next_token(void)
     if (ch == '}')
         return BLOCK_END;
 
-    if (isalpha(ch) || '_' == ch || '.' == ch)
+    if (isalpha(ch) || '_' == ch)
     {
         int i = 0;
-        while (isalpha(ch) || '_' == ch || '.' == ch || isdigit(ch))
+        while (isalpha(ch) || '_' == ch || isdigit(ch))
         {
             if (i >= TOKEN_LEN - 1)
             {
@@ -799,7 +800,7 @@ int scan_next_token(void)
             }
 
             _token_str[i++] = ch;
-            ch = read_lower_char();
+            ch = read_char();
         }
 
         _token_str[i] = 0;
@@ -843,7 +844,7 @@ int scan_next_token(void)
 
                 ch = read_lower_char();
 
-                if (!isdigit(ch) && (tolower(ch) < 'a' || tolower(ch) > 'f'))
+                if (!isdigit(ch) && (ch < 'a' || ch > 'f'))
                 {
                     _token_str[i++] = ch;
                     _token_str[i] = 0;
@@ -854,7 +855,7 @@ int scan_next_token(void)
 
         _token_value = 0;
 
-        while (isdigit(ch) || (base == 16 && tolower(ch) >= 'a' && tolower(ch) <= 'f'))
+        while (isdigit(ch) || (base == 16 && ch >= 'a' && ch <= 'f'))
         {
             if (i >= TOKEN_LEN-1)
             {
@@ -868,7 +869,7 @@ int scan_next_token(void)
         }
 
 
-        if (base == 16 && tolower(ch) > 'f' && tolower(ch) <= 'z')
+        if (base == 16 && ch > 'f' && ch <= 'z')
         {
             _token_str[i++] = ch;
             _token_str[i] = 0;
@@ -885,7 +886,7 @@ int scan_next_token(void)
     if ('\'' == ch)
     {
         _token_value = read_encoded_char();
-        if (read_lower_char() != '\'')
+        if (read_char() != '\'')
             compiler_error("missing ''' in character", NULL);
         return INTEGER;
     }
@@ -1908,10 +1909,10 @@ void init(void)
     find_operator("*"); _mul_op = _token_op_id;
     find_operator("+"); _add_op = _token_op_id;
 
-    builtin("t.syscall0", 1, CG_P_SYSCALL0);
-    builtin("t.syscall1", 2, CG_P_SYSCALL1);
-    builtin("t.syscall2", 3, CG_P_SYSCALL2);
-    builtin("t.syscall3", 4, CG_P_SYSCALL3);
+    builtin("syscall0", 1, CG_P_SYSCALL0);
+    builtin("syscall1", 2, CG_P_SYSCALL1);
+    builtin("syscall2", 3, CG_P_SYSCALL2);
+    builtin("syscall3", 4, CG_P_SYSCALL3);
 }
 
 void print_usage(char *name)
