@@ -54,7 +54,8 @@ enum {
     COMMA, 
     COND,
     CONJ, 
-    DISJ, 
+    DISJ,
+    INC,
     LBRACK, 
     LPAREN, 
     RBRACK, 
@@ -612,6 +613,7 @@ typedef struct operator_t {
 operator_t _operators[] = {
     { 7, 1, "%",    BINOP,  CG_MOD      },
     { 6, 1, "+",    BINOP,  CG_ADD      },
+    { 0, 2, "++",   INC,    NULL        },
     { 7, 1, "*",    BINOP,  CG_MUL      },
     { 0, 1, ",",    COMMA,  NULL        },
     { 0, 1, "(",    LPAREN, NULL        },
@@ -647,7 +649,7 @@ const char * _operator_symbols = "%+*;,()[]=&|^@~:\\/!<>-?";
 
 int skip_whitespace_and_comment(void)
 {
-    int ch = read_lower_char();
+    int ch = read_char();
 
     while (true)
     {
@@ -655,14 +657,21 @@ int skip_whitespace_and_comment(void)
         {
             if (ch == '\n')
                 _current_line++;
-            ch = read_lower_char();
+            ch = read_char();
         }
 
-        if (ch != '#')
+        if (ch != '/')
             return ch;
 
+        ch = read_char();
+        if (ch != '/')
+        {
+            reject();
+            return '/';
+        }
+
         while (ch != '\n' && ch != EOF)
-            ch = read_lower_char();
+            ch = read_char();
     }
 }
 
@@ -1388,55 +1397,62 @@ void store(symbol_t *sym)
 
 void factor(void);
 
-symbol_t *address(int lv, int *bp)
+symbol_t *address(int level, int *byte_ptr)
 {
-    symbol_t    *y;
-
-    y = lookup(_token_str, 0);
+    symbol_t *sym = lookup(_token_str, 0);
     scan();
-    if (y->flags & SYM_CONST)
+
+    if (sym->flags & SYM_CONST)
     {
-        if (lv > 0) compiler_error("invalid address", y->name);
+        if (level > 0)
+            compiler_error("invalid address", sym->name);
+
         spill();
-        generate(CG_LDVAL, y->value);
+        generate(CG_LDVAL, sym->value);
     }
-    else if (y->flags & (SYM_FUNCTION|SYM_DECLARATION))
+    else if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION))
     {
-        if (2 == lv) compiler_error("invalid address", y->name);
+        if (level == 2)
+            compiler_error("invalid address", sym->name);
     }
-    else if (0 == lv || LBRACK == _token || BYTEOP == _token)
+    else if (level == 0 || _token == LBRACK || _token == BYTEOP || _token == INC)
     {
         spill();
-        load(y);
+        load(sym);
     }
-    if (LBRACK == _token || BYTEOP == _token)
-        if (y->flags & (SYM_FUNCTION|SYM_DECLARATION|SYM_CONST))
-            compiler_error("bad subscript", y->name);
+
+    if (_token == LBRACK || _token == BYTEOP)
+    {
+        if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST))
+            compiler_error("bad subscript", sym->name);
+    }
 
     while (LBRACK == _token)
     {
-        *bp = 0;
+        *byte_ptr = 0;
         scan();
         expression(0);
         expect(RBRACK, "']'");
         scan();
-        y = NULL;
+        sym = NULL;
         generate(CG_INDEX, 0);
-        if (LBRACK == _token || BYTEOP == _token || 0 == lv)
+
+        if (_token == LBRACK || _token == BYTEOP || level == 0)
             generate(CG_DEREF, 0);
     }
 
-    if (BYTEOP == _token)
+    if (_token == BYTEOP)
     {
-        *bp = 1;
+        *byte_ptr = 1;
         scan();
         factor();
-        y = NULL;
+        sym = NULL;
         generate(CG_INDXB, 0);
-        if (0 == lv)
+
+        if (level == 0)
             generate(CG_DREFB, 0);
     }
-    return y;
+    return sym;
 }
 
 void factor(void)
@@ -1445,13 +1461,13 @@ void factor(void)
     int op;
     int b;
 
-    if (INTEGER == _token)
+    if (_token == INTEGER)
     {
         spill();
         generate(CG_LDVAL, _token_value);
         scan();
     }
-    else if (SYMBOL == _token)
+    else if (_token == SYMBOL)
     {
         y = address(0, &b);
         if (LPAREN == _token)
@@ -1459,22 +1475,22 @@ void factor(void)
             function_call(y);
         }
     }
-    else if (STRING == _token)
+    else if (_token == STRING)
     {
         spill();
         generate(CG_LDADDR, make_string(_token_str));
         scan();
     }
-    else if (LBRACK == _token)
+    else if (_token == LBRACK)
     {
         spill();
         generate(CG_LDADDR, make_table());
     }
-    else if (ADDROF == _token)
+    else if (_token == ADDROF)
     {
         scan();
         y = address(2, &b);
-        if (NULL == y)
+        if (y == NULL)
         {
             ;
         }
@@ -1489,7 +1505,7 @@ void factor(void)
             generate(CG_LDLOCALREF, y->value);
         }
     }
-    else if (BINOP == _token)
+    else if (_token == BINOP)
     {
         op = _token_op_id;
         if (_token_op_id != _minus_op)
@@ -1498,14 +1514,14 @@ void factor(void)
         factor();
         generate(CG_NEG, 0);
     }
-    else if (UNOP == _token)
+    else if (_token == UNOP)
     {
         op = _token_op_id;
         scan();
         factor();
         generate(_operators[op].code, 0);
     }
-    else if (LPAREN == _token)
+    else if (_token == LPAREN)
     {
         scan();
         expression(0);
@@ -1783,20 +1799,25 @@ void assignment_or_call(void)
     clear();
     symbol_t *sym = address(1, &b);
 
-    if (LPAREN == _token)
+    if (_token == LPAREN)
     {
         function_call(sym);
     }
-    else if (ASSIGN == _token)
+    else if (_token == ASSIGN)
     {
         scan();
         expression(0);
         if (NULL == sym)
-            generate(b? CG_STINDB: CG_STINDR, 0);
+            generate(b ? CG_STINDB: CG_STINDR, 0);
         else if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST | SYM_VECTOR))
             compiler_error("bad location", sym->name);
         else
             store(sym);
+    }
+    else if (_token == INC)
+    {
+        generate(CG_INC, 0);
+        scan();
     }
     else
     {

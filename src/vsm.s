@@ -25,8 +25,9 @@
 ; CG_STLOCL w 		[F + w]: = A; A: = S0; P: = P + 1
 ; CG_STINDR 		[S0]: = A; P: = P + 1
 ; CG_STINDB 		b[S0]: = A; P: = P + 1
-; CG_INCGLOB a v 	[a]: = [a] + v
+; CG_INCGLOB a v 	[a] := [a] + v
 ; CG_INCLOCL w v 	[F + w]: = [F + w] + v
+; CG_INC            [A] := [A] + 1
 ; CG_ALLOC w		P: = P − w
 ; CG_DEALLOC w 		P: = P + w
 ; CG_LOCLVEC   		w: = P; P: = P − 1; S0: = w
@@ -175,6 +176,13 @@ CG_DECGLOB:	; a 	[a]: = [a] + 1
 
 CG_DECLOCL: 	;w  	[F + w]: = [F + w] + 1
 	sub.l #1,$FED(a6)
+
+CG_INC:			; [A] := [A] + 1
+	move.l d0,a5
+	addq.l #1,(a5)
+	;move.l (a5),d0
+	;addq.l #1,d0
+
 
 CG_ALLOC:	; w	P: = P − w
 	suba.l #$FEDCBA98,a7

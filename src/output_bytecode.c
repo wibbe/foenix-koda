@@ -52,7 +52,7 @@
 #define CG_FOR          "2F,>"
 #define CG_INCGLOB      "31,a"
 #define CG_INCLOCL      "32,w"
-#define CG_WORD         ",w"
+#define CG_INC          "34"
 
 #define CG_P_SYSCALL0   ""
 #define CG_P_SYSCALL1   ""
@@ -311,6 +311,10 @@ void write_bytecode(void)
             case 0x32:                  // CG_INCLOCL
                 fprintf(_output_target, "%06X: INCLOCL         %d\n", idx, text_fetch(idx + 1));
                 idx += 4;
+                break;
+
+            case 0x34:
+                fprintf(_output_target, "%06X: INC\n", idx);
                 break;
         }
         idx++;
