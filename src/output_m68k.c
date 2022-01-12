@@ -21,15 +21,17 @@
  */
 
 #define CG_INIT         ""
+#define CG_CALL_MAIN    "4EB9,w220070004E4F"
+#define CG_RESOLVE_END  ",s"
 #define CG_PUSH         "2F00"                  // P: = P − 1; S0: = A
-#define CG_LDVAL        /*"2f00*/"203C,w"           // P: = P − 1; S0: = A; A: = w
-#define CG_LDADDR       /*"2f00*/"203C,a"           // P: = P − 1; S0: = A; A: = a
-#define CG_LDLOCALREF   /*"2f00*/"200ED0BC,w"       // P: = P − 1; S0: = A; A: = F + w
-#define CG_LDGLOBAL     /*"2f00*/"2039,a"           // P: = P − 1; S0: = A; A: = [a]
-#define CG_LDLOCAL      /*"2f00*/"202E,l"           // P: = P − 1; S0: = A; A: = [F + w]
+#define CG_LDVAL        "203C,w"                // P: = P − 1; S0: = A; A: = w
+#define CG_LDADDR       "203C,a"                // P: = P − 1; S0: = A; A: = a
+#define CG_LDLOCALREF   "200ED0BC,w"            // P: = P − 1; S0: = A; A: = F + w
+#define CG_LDGLOBAL     "2039,a"                // P: = P − 1; S0: = A; A: = [a]
+#define CG_LDLOCAL      "202E,l"                // P: = P − 1; S0: = A; A: = [F + w]
 #define CG_CLEAR        "7000"                  // A: = 0
-#define CG_STGLOB       "23C0,a201F"            // [a]: = A; A: = S0; P: = P + 1
-#define CG_STLOCL       "2F40,l201F"            // [F + w]: = A; A: = S0; P: = P + 1
+#define CG_STGLOB       "23C0,a"                // [a]: = A; A: = S0; P: = P + 1
+#define CG_STLOCL       "2D40,l"                // [F + w]: = A; A: = S0; P: = P + 1
 #define CG_STINDR       "2A5F2A80"              // [S0]: = A; P: = P + 1
 #define CG_STINDB       "2A5F1A80"              // b[S0]: = A; P: = P + 1
 #define CG_ALLOC        "9FFC,w"                // P: = P − w
@@ -51,11 +53,11 @@
 #define CG_NEG          "4480"
 #define CG_INV          "4680"
 #define CG_LOGNOT       "220070004A81660270FF"
-#define CG_ADD          "221FD081221FC1419081"
+#define CG_ADD          "221FD081"
 #define CG_SUB          "221FC1419081"
-#define CG_MUL          "221F23C100B0302023C000B03024203900B03028"
-#define CG_DIV          "221F23C100B0306023C000B03064203900B03068"
-#define CG_MOD          "221F23C100B0306023C000B03064203900B0306C"
+#define CG_MUL          "241F2600280248434844C6C2C8C0C0C2D64448434243D083"
+#define CG_DIV          ""
+#define CG_MOD          ""
 #define CG_AND          "221FC081"
 #define CG_OR           "221F8081"
 #define CG_XOR          "221FB380"
@@ -63,23 +65,23 @@
 #define CG_SHR          ""
 #define CG_EQ           "221F24007000B481660270FF"
 #define CG_NEQ          "221F24007000B481670270FF"
-#define CG_LT           ""
-#define CG_GT           ""
-#define CG_LE           ""
-#define CG_GE           ""
+#define CG_LT           "221F24007000B4816F0270FF"
+#define CG_LE           "221F24007000B4816D0270FF"
+#define CG_GT           "221F24007000B4816C0270FF"
+#define CG_GE           "221F24007000B4816E0270FF"
 #define CG_JMPFALSE     "4A806700,>"
 #define CG_JMPTRUE      "4A806600,>"
-#define CG_FOR          "221FB0816C00,>"
+#define CG_FOR          "221FB2806C00,>"
 #define CG_INCGLOB      "52B9,a"
 #define CG_INCLOCL      "52AE,l"
 #define CG_INC          "2A405295"
 
-#define CG_P_SYSCALL0   "2F002F0E202F000C4E4F2C5F201F4E75"
-#define CG_P_SYSCALL1   "2F002F0E222F000C202F00104E4F2C5F201F4E75"
-#define CG_P_SYSCALL2   "2F002F0E242F000C222F0010202F00144E4F2C5F201F4E75"
-#define CG_P_SYSCALL3   "2F002F0E262F000C242F0010222F0014202F00184E4F2C5F201F4E75"
-
-
+#define CG_FUNC_SYSCALL0    "2F002F0E202F000C4E4F2C5F201F4E75"
+#define CG_FUNC_SYSCALL1    "2F002F0E222F000C202F00104E4F2C5F201F4E75"
+#define CG_FUNC_SYSCALL2    "2F002F0E242F000C222F0010202F00144E4F2C5F201F4E75"
+#define CG_FUNC_SYSCALL3    "2F002F0E262F000C242F0010222F0014202F00184E4F2C5F201F4E75"
+#define CG_FUNC_MEMSCAN     "222F0004242F0008206F000C22482448D5C1B5C9671276001619B483670260F22009908853804E7570FF4E75"
+#define CG_FUNC_MEMCOPY     "206F000C226F0008222F000410D951C9FFFC4E75"
 
 void write_output_word(int x);
 void write_output_byte(unsigned char ch);

@@ -85,7 +85,7 @@ SYSCALL0:
 	move.l (12,sp),d0
 	trap #15
 	move.l (sp)+,a6
-	move.l (sp)+,d0
+	move.l (sp)+,d0				; TODO: This will not work, we will not get any result back from the syscall!!!
 	rts
 
 SYSCALL1:
@@ -95,7 +95,7 @@ SYSCALL1:
 	move.l (16,sp),d0
 	trap #15
 	move.l (sp)+,a6
-	move.l (sp)+,d0
+	move.l (sp)+,d0				; TODO: This will not work, we will not get any result back from the syscall!!!
 	rts
 
 SYSCALL2:
@@ -106,7 +106,7 @@ SYSCALL2:
 	move.l (20,sp),d0
 	trap #15
 	move.l (sp)+,a6
-	move.l (sp)+,d0
+	move.l (sp)+,d0				; TODO: This will not work, we will not get any result back from the syscall!!!
 	rts
 
 SYSCALL3:
@@ -118,11 +118,48 @@ SYSCALL3:
 	move.l (24,sp),d0
 	trap #15
 	move.l (sp)+,a6
-	move.l (sp)+,d0
+	move.l (sp)+,d0				; TODO: This will not work, we will not get any result back from the syscall!!!
 	rts
 
-CG_INIT:
+MEMSCAN:
+	move.l (4,sp),d1 			; copy length
+	move.l (8,sp),d2 			; copy byte to search for
+	move.l (12,sp),a0			; copy pointer to byte data
+	move.l a0,a1 				; copy start address to our iterator
+	move.l a0,a2 				; calculate end position
+	add.l d1,a2					; 
+memscan_loop:
+	cmp.l a1,a2					; are we at the end yet?
+	beq memscan_no_result
 
+	clr.l d3
+	move.b (a1)+,d3				; fetch next byte to check
+	cmp.l d3,d2 				; have we found the byte we are looking for?
+	beq memscan_found_byte
+	bra memscan_loop 			; loop back
+
+memscan_found_byte:
+	move.l a1,d0 				; move iterator to return register
+	sub.l a0,d0					; subtract start position from iterator to get byte position
+	subq.l #1,d0 				; take into account that iterator as been moved to next char
+	rts
+
+memscan_no_result:
+	move.l #-1,d0				; return negative value if byte was not found
+	rts
+
+MEMCOPY:
+	move.l (12,sp),a0 			; fetch destination pointer
+	move.l (8,sp),a1			; fetch source pointer
+	move.l (4,sp),d1			; fetch byte count to copy
+memcopy_loop:
+	move.b (a1)+,(a0)+
+	dbra d1,memcopy_loop
+	rts
+
+
+CG_INIT:
+	; TODO: We need to setup a propert stack pointer here
 
 CG_PUSH:	; P: = P − 1; S0: = A
 	move.l d0,-(sp)
@@ -151,11 +188,9 @@ G_LDLOCL: 	; w	P: = P − 1; S0: = A; A: = [F + w]
 
 CG_STGLOB: 	; a	[a]: = A; A: = S0; P: = P + 1
 	move.l d0,$FEDCAB98
-	move.l (sp)+,d0
 
 CG_STLOCL:	; w	[F + w]: = A; A: = S0; P: = P + 1
-	move.l d0,$FED(sp)
-	move.l (sp)+,d0
+	move.l d0,$FED(a6)
 
 CG_STINDR: 	; [S0]: = A; P: = P + 1
 	move.l (sp)+,a5
@@ -180,8 +215,6 @@ CG_DECLOCL: 	;w  	[F + w]: = [F + w] + 1
 CG_INC:			; [A] := [A] + 1
 	move.l d0,a5
 	addq.l #1,(a5)
-	;move.l (a5),d0
-	;addq.l #1,d0
 
 
 CG_ALLOC:	; w	P: = P − w
@@ -219,26 +252,22 @@ CG_CALL:	; w 	P := P − 1; S0 := I; I := w
 	jsr $FEDCBA98
 
 CG_JUMPFWD:	; w 	I: = w;
-	;jmp $FEDCBA98
 	bra CG_JMPTRUE
 
 CG_JUMPBACK:	; w	I: = w;
-	;jmp $FEDCBA98
 	bra CG_PUSH
 
 CG_JMPFALSE:	; w	if S0 = 0, then I: = w; always: P: = P + 1
-	;move.l (sp)+,d1
 	cmp.l #0,d0
 	beq $ABCD
 
 CG_JMPTRUE:	; w	if S0 ≠ 0, then I: = w; always: P: = P + 1
-	;move.l (sp)+,d1
 	cmp.l #0,d0
 	bne $ABCD
 
 CG_FOR:		; w	if S0 ≥ A, then I: = w; always: P: = P + 1
 	move.l (sp)+,d1
-	cmp.l d1,d0
+	cmp.l d0,d1
 	bge $ABCD
 
 CG_ENTER:	;	P: = P − 1; S0: = F; F: = P
@@ -273,10 +302,18 @@ CG_SUB:		;	A: = S0 − A; P: = P + 1
 	sub.l d1,d0
 
 CG_MUL:		;	A: = S0 ⋅ A; P: = P + 1
-	move.l (sp)+,d1
-	move.l d1,$00B03020
-	move.l d0,$00B03024
-	move.l $00B03028,d0
+	move.l	(sp)+,d2
+	move.l	d0,d3
+	move.l	d2,d4
+	swap	d3
+	swap	d4
+	mulu.w	d2,d3
+	mulu.w	d0,d4
+	mulu.w	d2,d0
+	add.w	d4,d3
+	swap	d3
+	clr.w	d3
+	add.l	d3,d0
 
 CG_DIV:		;	A: = S0 div A; P: = P + 1
 	move.l (sp)+,d1
@@ -324,3 +361,39 @@ CG_NEQ: 	; if S0 ≠ A then A: = −1 else A: = 0; always: P: = P + 1
 	beq neq_done
 	move.l #$FFFFFFFF,d0
 neq_done:
+
+CG_LT: 		; if S0(d1) < A(d2) then A: = −1 else A: = 0 always: P: = P + 1
+	move.l (sp)+,d1
+	move.l d0,d2
+	move.l #0,d0
+	cmp.l d1,d2
+	ble lt_done 		; d1 >= d2
+	move.l #$FFFFFFFF,d0
+lt_done:	
+
+CG_GT:		; if S0 > A then A: = −1 else A: = 0 always: P: = P + 1
+	move.l (sp)+,d1
+	move.l d0,d2
+	move.l #0,d0
+	cmp.l d1,d2
+	bge gt_done 		; d1 <= d2
+	move.l #$FFFFFFFF,d0
+gt_done:
+
+CG_LE:		; if S0 ≤ A then A: = −1 else A: = 0; always: P: = P + 1
+	move.l (sp)+,d1
+	move.l d0,d2
+	move.l #0,d0
+	cmp.l d1,d2
+	blt le_done 		; d1 > d2
+	move.l #$FFFFFFFF,d0
+le_done:	
+
+CG_GE:		; if S0 ≥ A then A: = −1 else A: = 0; always: P: = P + 1
+	move.l (sp)+,d1
+	move.l d0,d2
+	move.l #0,d0
+	cmp.l d1,d2
+	bgt ge_done 		; d1 < d2
+	move.l #$FFFFFFFF,d0
+ge_done:

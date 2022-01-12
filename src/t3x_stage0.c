@@ -39,6 +39,9 @@ enum {
     MAXLOOP                 = 100,
 
     TOKEN_LEN               = 128,
+
+    HEAP_START              = 0x00060000,
+    HEAP_END                = 0x00100000,
 };
 
 enum {
@@ -109,6 +112,8 @@ bool _has_main_body = false;
 #endif
 
 int _output_type = 0;
+bool _output_labels = false;
+char *_output_labels_filename = NULL;
 
 relocation_t _relocation_table[RELOCATION_SIZE];
 
@@ -393,7 +398,7 @@ void resolve(void)
             address += dist;
             data_patch(_relocation_table[i].addr, address);
         }
-    }
+    }   
 }
 
 void generate(char *code, int value)
@@ -431,6 +436,16 @@ void generate(char *code, int value)
             else if (code[1] == '<')
             {
                 emit_short(pop() - _text_buffer_ptr);
+            }
+            else if (code[1] == ']')
+            {
+                push(_text_buffer_ptr);
+                emit_word(0);
+            }
+            else if (code[1] == 's')
+            {
+                int address = pop();
+                text_patch_word(address, value);
             }
             else if (code[1] == 'r')
             {
@@ -489,6 +504,31 @@ void write_output_byte(unsigned char ch)
 #endif
 }
 
+void save_labels(void)
+{
+#if PLATFORM_WIN
+    _output_target = fopen(_output_labels_filename, "w");
+    if (_output_target == NULL)
+        compiler_error("could not write to output labels file", _output_labels_filename);
+
+    for (int i = 0; i < _symbol_table_ptr; ++i)
+    {
+        symbol_t *sym = &_symbol_table[i];
+        int value = sym->value;
+
+        if (sym->flags & SYM_FUNCTION)
+            value += TEXT_VADDR;
+        else if (!(sym->flags & SYM_CONST))
+            value += DATA_VADDR;
+
+        fprintf(_output_target, "%08X\t%s\n", value, sym->name);
+    }
+
+    fclose(_output_target);
+    _output_target = NULL;
+#endif 
+}
+
 void save_output(char *output_filename)
 {
 #if PLATFORM_WIN
@@ -520,6 +560,9 @@ void save_output(char *output_filename)
     fclose(_output_target);
     _output_target = NULL;
 #endif  
+
+    if (_output_labels)
+        save_labels();
 }
 
 
@@ -1000,9 +1043,12 @@ int const_value(void)
     return value;
 }
 
+void expression(int clr);
+void store(symbol_t *sym);
+
 void var_declaration(int glob)
 {
-    symbol_t *y;
+    symbol_t *var;
     int size;
 
     scan();
@@ -1011,9 +1057,9 @@ void var_declaration(int glob)
         expect(SYMBOL, "symbol");
         size = 1;
         if (glob & SYM_GLOBF)
-            y = add(_token_str, glob, _data_buffer_ptr);
+            var = add(_token_str, glob, _data_buffer_ptr);
         else
-            y = add(_token_str, 0, _local_frame_ptr);
+            var = add(_token_str, 0, _local_frame_ptr);
 
         scan();
         if (LBRACK == _token)
@@ -1022,7 +1068,7 @@ void var_declaration(int glob)
             size = const_value();
             if (size < 1)
                 compiler_error("invalid size", NULL);
-            y->flags |= SYM_VECTOR;
+            var->flags |= SYM_VECTOR;
             expect(RBRACK, "']'");
             scan();
         }
@@ -1033,12 +1079,12 @@ void var_declaration(int glob)
             if (size < 1)
                 compiler_error("invalid size", NULL);
             size = (size + BPW - 1) / BPW;
-            y->flags |= SYM_VECTOR;
+            var->flags |= SYM_VECTOR;
         }
 
         if (glob & SYM_GLOBF)
         {
-            if (y->flags & SYM_VECTOR)
+            if (var->flags & SYM_VECTOR)
             {
                 generate(CG_ALLOC, size * BPW);
                 generate(CG_GLOBVEC, _data_buffer_ptr);
@@ -1049,13 +1095,16 @@ void var_declaration(int glob)
         {
             generate(CG_ALLOC, size * BPW);
             _local_frame_ptr -= size * BPW;
-            if (y->flags & SYM_VECTOR)
+            if (var->flags & SYM_VECTOR)
             {
                 generate(CG_LOCLVEC, 0);
                 _local_frame_ptr -= BPW;
             }
-            y->value = _local_frame_ptr;
+            var->value = _local_frame_ptr;
         }
+
+        if (_token == ASSIGN)
+            compiler_error("not allowed to assign values to variables on declaration", var->name);
 
         if (_token != COMMA)
             break;
@@ -1156,6 +1205,9 @@ void statement(void);
 
 void function_declaration(void)
 {
+    // TODO: We should collect all function arguments and variables and allocate space
+    //       on the stack in one go
+
     int local_addr = 2 * BPW;
     int number_arguments = 0;
 
@@ -1235,8 +1287,6 @@ void declaration(int glob)
             break;
     }
 }
-
-void expression(int clr);
 
 void function_call(symbol_t *fn)
 {
@@ -1470,10 +1520,9 @@ void factor(void)
     else if (_token == SYMBOL)
     {
         y = address(0, &b);
+
         if (LPAREN == _token)
-        {
             function_call(y);
-        }
     }
     else if (_token == STRING)
     {
@@ -1671,29 +1720,34 @@ void if_statement()
 
 void while_statement(void)
 {
-    int olp, olv;
+    int old_loop0 = _loop0;
+    int old_leaves_ptr = _leaves_ptr;
 
-    olp = _loop0;
-    olv = _leaves_ptr;
     scan();
     expect_left_paren();
     generate(CG_MARK, 0);
+
     _loop0 = tos();
+    
     expression(1);
+
     expect_right_paren();
     generate(CG_JMPFALSE, 0);
+    
     statement();
+    
     swap();
     generate(CG_JUMPBACK, 0);
     generate(CG_RESOLV, 0);
 
-    while (_leaves_ptr > olv)
+    while (_leaves_ptr > old_leaves_ptr)
     {
         push(_leaves[_leaves_ptr-1]);
         generate(CG_RESOLV, 0);
         _leaves_ptr--;
     }
-    _loop0 = olp;
+
+    _loop0 = old_loop0;
 }
 
 void for_statement(void)
@@ -1886,35 +1940,32 @@ void block_statement(void)
     _local_frame_ptr = old_local_frame_ptr;
 }
 
-void program(bool last_file)
+void program(void)
 {
+    // Reset important pointers
+    _relocation_ptr = 0;
+
     int i;
 
     scan();
     while (_token == KVAR || _token == KCONST || _token == KFUNC || _token == KDECL || _token == KSTRUCT)
         declaration(SYM_GLOBF);
 
-    if (last_file)
-        generate(CG_INIT, 0);
-
-    // Do we have a main body for the program?
-    if (_token == KMAIN)
+    for (i = 0; i < _symbol_table_ptr; i++)
     {
-        if (_has_main_body)
-            compiler_error("not allowed to have multiple main bodies", NULL);
-
-        scan();
-        block_statement();
-        generate(CG_HALT, 0);
-
-        for (i = 0; i < _symbol_table_ptr; i++)
-        {
-            if (_symbol_table[i].flags & SYM_DECLARATION && _symbol_table[i].value)
-                compiler_error("undefined function", _symbol_table[i].name);
-        }
-
-        _has_main_body = true;
+        if (_symbol_table[i].flags & SYM_DECLARATION && _symbol_table[i].value)
+            compiler_error("undefined function", _symbol_table[i].name);
     }
+}
+
+void resolve_main(void)
+{
+    symbol_t *main = lookup("main", SYM_FUNCTION);
+    if (main == NULL)
+        compiler_error("missing main entry point", NULL);
+
+    generate(CG_CALL, main->value + TEXT_VADDR);
+    generate(CG_HALT, 0);
 }
 
 /**
@@ -1923,23 +1974,28 @@ void program(bool last_file)
 
 void init(void)
 {
-    _has_main_body = false;
+    generate(CG_INIT, 0);
 
     find_operator("="); _equal_op = _token_op_id;
     find_operator("-"); _minus_op = _token_op_id;
     find_operator("*"); _mul_op = _token_op_id;
     find_operator("+"); _add_op = _token_op_id;
 
-    builtin("syscall0", 1, CG_P_SYSCALL0);
-    builtin("syscall1", 2, CG_P_SYSCALL1);
-    builtin("syscall2", 3, CG_P_SYSCALL2);
-    builtin("syscall3", 4, CG_P_SYSCALL3);
+    builtin("syscall0", 1, CG_FUNC_SYSCALL0);
+    builtin("syscall1", 2, CG_FUNC_SYSCALL1);
+    builtin("syscall2", 3, CG_FUNC_SYSCALL2);
+    builtin("syscall3", 4, CG_FUNC_SYSCALL3);
+    builtin("memscan", 3, CG_FUNC_MEMSCAN);
+    builtin("memcopy", 3, CG_FUNC_MEMCOPY);
+
+    add("HEAP_START", SYM_CONST, HEAP_START);
+    add("HEAP_END", SYM_CONST, HEAP_END);
 }
 
 void print_usage(char *name)
 {
 #ifdef PLATFORM_WIN
-    printf("usage: %s [-o <output>] [--pgz/-p] [--srec/-s] <input-file...>\n", name);
+    printf("usage: %s [-o <output>] [--pgz/-p] [--srec/-s] [--labels/-l <labels-file>] <input-file...>\n", name);
 #endif  
 }
 
@@ -1973,7 +2029,8 @@ int main(int argc, char *argv[])
             arg++;
             continue;
         }     
-#endif        
+#endif      
+
         if (strcmp(argv[arg], "-o") == 0)
         {
             if (arg >= argc - 1)
@@ -1985,6 +2042,22 @@ int main(int argc, char *argv[])
                 return 1;
             }
             output_file = argv[arg + 1];
+            arg += 2;
+            continue;
+        }
+
+        if (strcmp(argv[arg], "--labels") == 0 || strcmp(argv[arg], "-l") == 0)
+        {
+            if (arg >= argc - 1)
+            {
+#ifdef PLATFORM_WIN             
+                printf("error: missing label filename\n");
+#endif              
+                print_usage(argv[0]);
+                return 1;
+            }
+            _output_labels = true;
+            _output_labels_filename = argv[arg + 1];
             arg += 2;
             continue;
         }
@@ -2024,12 +2097,11 @@ int main(int argc, char *argv[])
         printf("Compiling %s\n", input_files[i]);
 #endif        
         read_input_source(input_files[i]);
-        program(i == input_files_count - 1);
+        program();
         resolve();
     }
 
-    if (!_has_main_body)
-        compiler_error("program missing main body", NULL);
+    resolve_main();
 
     save_output(output_file);
     return 0;

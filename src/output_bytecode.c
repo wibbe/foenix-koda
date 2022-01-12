@@ -1,6 +1,7 @@
 
 
-#define CG_INIT         "01"
+#define CG_INIT         "35,]"
+#define CG_RESOLVE_END  ",s"
 #define CG_PUSH         "02"         // P: = P − 1; S0: = A
 #define CG_LDVAL        "03,w"       // P: = P − 1; S0: = A; A: = w
 #define CG_LDADDR       "04,a"       // P: = P − 1; S0: = A; A: = a
@@ -54,10 +55,12 @@
 #define CG_INCLOCL      "32,w"
 #define CG_INC          "34"
 
-#define CG_P_SYSCALL0   ""
-#define CG_P_SYSCALL1   ""
-#define CG_P_SYSCALL2   ""
-#define CG_P_SYSCALL3   ""  
+#define CG_FUNC_SYSCALL0    ""
+#define CG_FUNC_SYSCALL1    ""
+#define CG_FUNC_SYSCALL2    ""
+#define CG_FUNC_SYSCALL3    ""  
+#define CG_FUNC_MEMSCAN     ""
+#define CG_FUNC_MEMCOPY     ""
 
 
 
@@ -200,7 +203,7 @@ void write_bytecode(void)
                 break;
 
             case 0x17:          // CG_JUMPBACK
-                fprintf(_output_target, "%06X: JUMPBACK        $%06X\n", idx, idx - text_fetch_short(idx + 1));
+                fprintf(_output_target, "%06X: JUMPBACK        $%06X\n", idx, idx - text_fetch_short(idx + 1) + 1);
                 idx += 2;
                 break;
 
@@ -316,6 +319,12 @@ void write_bytecode(void)
             case 0x34:
                 fprintf(_output_target, "%06X: INC\n", idx);
                 break;
+
+            case 0x35:
+                fprintf(_output_target, "%06X: INIT         %d\n", idx, text_fetch(idx + 1));
+                idx += 4;
+                break;
+
         }
         idx++;
     }
