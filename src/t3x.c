@@ -16,15 +16,8 @@ enum {
     BPW                     = 4,
     PROGRAM_SIZE            = 0xF000,
 
-#if T3X_OUTPUT_M68K
     TEXT_VADDR              = 0x00020000,
     DATA_VADDR              = 0x00040000,
-#elif T3X_OUTPUT_BYTECODE
-    TEXT_VADDR              = 0x00000000,
-    DATA_VADDR              = 0x00100000,
-#else
-    #error "Unknown output format"
-#endif
 
     TEXT_SIZE               = 0x10000,
     DATA_SIZE               = 0x10000,
@@ -149,13 +142,9 @@ int _loops_ptr = 0;
 t3x_compiler_options_t *_options = NULL;
 
 
-#ifdef T3X_OUTPUT_M68K
-    int _div32_routine_address;
-    int _mul32_routine_address;
-    #include "output_m68k.c"
-#elif T3X_OUTPUT_BYTECODE
-    #include "output_bytecode.c"
-#endif
+int _div32_routine_address;
+int _mul32_routine_address;
+#include "output_m68k.c"
 
 
 void compiler_error(char *message, char *extra)
@@ -555,10 +544,8 @@ void save_labels(void)
         fprintf(_output_target, "%08X\t%s\n", value, sym->name);
     }
 
-#if T3X_OUTPUT_M68K
     fprintf(_output_target, "%08X\tmul32\n", _mul32_routine_address);
     fprintf(_output_target, "%08X\tdiv32\n", _div32_routine_address);
-#endif    
 
     fclose(_output_target);
     _output_target = NULL;
@@ -575,7 +562,6 @@ void save_output(char *output_filename)
     _output_channel = sys_fsys_open(output_filename, FILE_MODE_CREATE_ALWAYS | FILE_MODE_WRITE); 
 #endif  
 
-#if T3X_OUTPUT_M68K
     if (_options->output_type == T3X_OUTPUT_TYPE_PGZ)
     {
         write_pgz_header();
@@ -588,11 +574,6 @@ void save_output(char *output_filename)
         write_srec_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
         write_srec_segment(DATA_VADDR, _data_buffer, _data_buffer_ptr);
     }
-#elif T3X_OUTPUT_BYTECODE
-    write_bytecode();
-#else
-    #error "Unknown output format"
-#endif    
 
 #if PLATFORM_WIN
     fclose(_output_target);
@@ -1633,14 +1614,10 @@ int emitop(int *operator_stack, int stack_ptr)
 {
     int op = operator_stack[stack_ptr - 1];
 
-#if T3X_OUTPUT_M68K
     if (op == _div_op || op == _mul_op || op == _mod_op)
         generate(_operators[op].code, op == _mul_op ? _mul32_routine_address : _div32_routine_address);
     else
         generate(_operators[op].code, 0);
-#else    
-    generate(_operators[op].code, 0);
-#endif
 
     return stack_ptr - 1;
 }
@@ -2031,8 +2008,6 @@ void init(void)
     _symbol_table_ptr = 0;
 
     generate(CG_INIT, HEAP_END);
-
-#if T3X_OUTPUT_M68K
     generate(CG_JUMPFWD, 0);
     
     // Heap allocation ptr
@@ -2051,7 +2026,7 @@ void init(void)
     generate(CG_DIV32, 0);
 
     generate(CG_RESOLV, 0);
-#endif    
+
 
     find_operator("="); _equal_op = _token_op_id;
     find_operator("-"); _minus_op = _token_op_id;
@@ -2070,11 +2045,9 @@ void init(void)
     add("HEAP_START", SYM_CONST, HEAP_START);
     add("HEAP_END", SYM_CONST, HEAP_END - INITIAL_STACK_SIZE);
 
-#if T3X_OUTPUT_M68K
     // Special variables used by the standard library
     add("__heap_ptr", SYM_GLOBF, heap_ptr_var + TEXT_VADDR - DATA_VADDR);
     add("__buffer", SYM_GLOBF, buffer_ptr_var + TEXT_VADDR - DATA_VADDR);
-#endif    
 }
 
 

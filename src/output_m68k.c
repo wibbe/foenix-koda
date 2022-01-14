@@ -21,8 +21,6 @@
  */
 
 #define CG_INIT         "202F0004222F00082E7C,w2F002F01"
-#define CG_CALL_MAIN    "4EB9,w220070004E4F"
-#define CG_RESOLVE_END  ",s"
 #define CG_PUSH         "2F00"                  // P: = P − 1; S0: = A
 #define CG_LDVAL        "203C,w"                // P: = P − 1; S0: = A; A: = w
 #define CG_LDADDR       "203C,a"                // P: = P − 1; S0: = A; A: = a
@@ -55,7 +53,6 @@
 #define CG_LOGNOT       "220070004A81660270FF"
 #define CG_ADD          "221FD081"
 #define CG_SUB          "221FC1419081"
-//#define CG_MUL          "241F2600280248434844C6C2C8C0C0C2D64448434243D083"
 #define CG_MUL          "221F4EB9,w"
 #define CG_DIV          "2200201F4EB9,w"
 #define CG_MOD          "2200201F4EB9,w2001"

@@ -2,7 +2,7 @@
 
 set VBCC=%cd%\vbcc
 set CFG_FILE=%VBCC%\config\a2560u_ram
-set DEFINES=-DT3X_OUTPUT_M68K -DPLATFORM_FOENIX
+set DEFINES=-DPLATFORM_FOENIX
 set CFLAGS=-cpu=68000 -Isrc +%CFG_FILE%
 set ASFLAGS=-m68000 -quiet -Fvobj -nowarn=62
 

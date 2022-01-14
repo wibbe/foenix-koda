@@ -27,8 +27,7 @@ int main(int argc, char *argv[])
     // Parse arguments
     int arg = 1;
     while (arg < argc)
-    {
-#if T3X_OUTPUT_M68K        
+    {     
         if (strcmp(argv[arg], "--pgz") == 0 || strcmp(argv[arg], "-p") == 0)
         {
             options.output_type = T3X_OUTPUT_TYPE_PGZ;
@@ -40,8 +39,7 @@ int main(int argc, char *argv[])
             options.output_type = T3X_OUTPUT_TYPE_SREC;
             arg++;
             continue;
-        }     
-#endif      
+        }       
 
         if (strcmp(argv[arg], "--usage") == 0 || strcmp(argv[arg], "-u") == 0)
         {
