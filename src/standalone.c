@@ -43,6 +43,13 @@ int main(int argc, char *argv[])
         }     
 #endif      
 
+        if (strcmp(argv[arg], "--usage") == 0 || strcmp(argv[arg], "-u") == 0)
+        {
+            options.print_usage_statistics = 1;
+            arg++;
+            continue;
+        }
+
         if (strcmp(argv[arg], "-o") == 0)
         {
             if (arg >= argc - 1)

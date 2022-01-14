@@ -158,6 +158,85 @@ memcopy_loop:
 	rts
 
 
+;
+; ===== Multiplies the 32 bit values in D0 and D1, returning
+;       the 32 bit result in D0.
+;
+mult32:
+    move.l  d1,d4
+    eor.l   d0,d4           ; see if the signs are the same
+    tst.l   d0              ; take absolute value of d0
+    bpl     mlt1
+    neg.l   d0
+mlt1:
+    tst.l   d1              ; take absolute value of d1
+    bpl     mlt2
+    neg.l   d1
+mlt2:
+    cmp.l   #$ffff,d1       ; is second argument <= 16 bits?
+    bls     mlt3            ; ok, let it through
+    exg     d0,d1           ; else swap the two arguments
+    cmp.l   #$ffff,d1       ; and check 2nd argument again
+    bhi.w   ovflow          ; one of them must be 16 bits
+mlt3:
+    move    d0,d2           ; prepare for 32 bit x 16 bit multiply
+    mulu    d1,d2           ; multiply low word
+    swap    d0
+    mulu    d1,d0           ; multiply high word
+    swap    d0
+; *** rick murray's bug correction follows:
+    tst     d0              ; if lower word not 0, then overflow
+    bne.w   ovflow          ; if overflow, say "how?"
+    add.l   d2,d0           ; d0 now holds the product
+    bmi.w   ovflow          ; if sign bit set, it's an overflow
+    tst.l   d4              ; were the signs the same?
+    bpl     mltret
+    neg.l   d0              ; if not, make the result negative
+mltret:
+    rts
+
+ovflow:
+	moveq	#0,d0
+    bra     mltret
+
+;
+; ===== Divide the 32 bit value in D0 by the 32 bit value in D1.
+;       Returns the 32 bit quotient in D0, remainder in D1.
+;
+DIV32:
+    move.l  d1,d2
+    move.l  d1,d4
+    eor.l   d0,d4           ; see if the signs are the same
+    tst.l   d0              ; take absolute value of d0
+    bpl     div1
+    neg.l   d0
+div1:
+	tst.l   d1              ; take absolute value of d1
+    bpl     div2
+    neg.l   d1
+div2:
+    moveq   #31,d3          ; iteration count for 32 bits
+	move.l  d0,d1
+    clr.l   d0
+div3:
+    add.l   d1,d1           ; (This algorithm was translated from
+    addx.l  d0,d0           ; the divide routine in Ron Cain's
+    beq     div4            ; Small-C run time library.)
+    cmp.l   d2,d0
+    bmi     div4
+    addq.l  #1,d1
+    sub.l   d2,d0
+div4:
+    dbra    d3,div3
+    exg     d0,d1           ; put rem. & quot. in proper registers
+    tst.l   d4              ; were the signs the same?
+    bpl     divrt
+    neg.l   d0              ; if not, results are negative
+    neg.l   d1
+divrt:
+    rts
+
+
 CG_INIT:
     move.l (4,sp),d0            ; pop the parameter count supplied from the system
     move.l (8,sp),d1            ; pop the parameters list supplied from the system
@@ -303,30 +382,19 @@ CG_SUB:		;	A: = S0 − A; P: = P + 1
 	sub.l d1,d0
 
 CG_MUL:		;	A: = S0 ⋅ A; P: = P + 1
-	move.l	(sp)+,d2
-	move.l	d0,d3
-	move.l	d2,d4
-	swap	d3
-	swap	d4
-	mulu.w	d2,d3
-	mulu.w	d0,d4
-	mulu.w	d2,d0
-	add.w	d4,d3
-	swap	d3
-	clr.w	d3
-	add.l	d3,d0
+	move.l (sp)+,d1
+	jsr $FEDCBA98
 
 CG_DIV:		;	A: = S0 div A; P: = P + 1
-	move.l (sp)+,d1
-	move.l d1,$00B03060
-	move.l d0,$00B03064
-	move.l $00B03068,d0
+	move.l d0,d1
+	move.l (sp)+,d0
+	jsr $FEDCBA98
 
 CG_MOD:		;	A: = S0 mod A; P: = P + 1
-	move.l (sp)+,d1
-	move.l d1,$00B03060
-	move.l d0,$00B03064
-	move.l $00B0306C,d0
+	move.l d0,d1
+	move.l (sp)+,d0
+	jsr $FEDCBA98
+	move.l d1,d0
 
 CG_AND:		; A := S0 AND A; P := P + 1
 	move.l (sp)+,d1

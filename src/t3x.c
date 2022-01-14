@@ -149,6 +149,8 @@ t3x_compiler_options_t *_options = NULL;
 
 
 #ifdef T3X_OUTPUT_M68K
+    int _div32_routine_address;
+    int _mul32_routine_address;
     #include "output_m68k.c"
 #elif T3X_OUTPUT_BYTECODE
     #include "output_bytecode.c"
@@ -546,6 +548,11 @@ void save_labels(void)
         fprintf(_output_target, "%08X\t%s\n", value, sym->name);
     }
 
+#if T3X_OUTPUT_M68K
+    fprintf(_output_target, "%08X\tmul32\n", _mul32_routine_address);
+    fprintf(_output_target, "%08X\tdiv32\n", _div32_routine_address);
+#endif    
+
     fclose(_output_target);
     _output_target = NULL;
 #endif 
@@ -674,6 +681,8 @@ int _token_op_id;
 int _equal_op;
 int _minus_op;
 int _mul_op;
+int _div_op;
+int _mod_op;
 int _add_op;
 
 typedef struct operator_t {
@@ -1615,11 +1624,21 @@ void factor(void)
 
 int emitop(int *operator_stack, int stack_ptr)
 {
-    generate(_operators[operator_stack[stack_ptr - 1]].code, 0);
+    int op = operator_stack[stack_ptr - 1];
+
+#if T3X_OUTPUT_M68K
+    if (op == _div_op || op == _mul_op || op == _mod_op)
+        generate(_operators[op].code, op == _mul_op ? _mul32_routine_address : _div32_routine_address);
+    else
+        generate(_operators[op].code, 0);
+#else    
+    generate(_operators[op].code, 0);
+#endif
+
     return stack_ptr - 1;
 }
 
-void arith(void)
+void arithmetic(void)
 {
     int operator_stack[10];
     int stack_ptr = 0;
@@ -1643,13 +1662,13 @@ void conjn(void)
 {
     int n = 0;
 
-    arith();
+    arithmetic();
     while (CONJ == _token)
     {
         scan();
         generate(CG_JMPFALSE, 0);
         clear();
-        arith();
+        arithmetic();
         n++;
     }
 
@@ -2002,13 +2021,30 @@ void init(void)
 {
     _text_buffer_ptr = 0;
     _data_buffer_ptr = 0;
+    _symbol_table_ptr = 0;
 
     generate(CG_INIT, HEAP_END);
+
+#if T3X_OUTPUT_M68K
+    // Add special math routines
+    generate(CG_JUMPFWD, 0);
+    
+    _mul32_routine_address = _text_buffer_ptr + TEXT_VADDR;
+    generate(CG_MUL32, 0);
+
+    _div32_routine_address = _text_buffer_ptr + TEXT_VADDR;
+    generate(CG_DIV32, 0);
+
+
+    generate(CG_RESOLV, 0);
+#endif    
 
     find_operator("="); _equal_op = _token_op_id;
     find_operator("-"); _minus_op = _token_op_id;
     find_operator("*"); _mul_op = _token_op_id;
     find_operator("+"); _add_op = _token_op_id;
+    find_operator("/"); _div_op = _token_op_id;
+    find_operator("%"); _mod_op = _token_op_id;
 
     builtin("syscall0", 1, CG_FUNC_SYSCALL0);
     builtin("syscall1", 2, CG_FUNC_SYSCALL1);
@@ -2054,6 +2090,16 @@ int t3x_compile(t3x_compiler_options_t *options)
 
     resolve_main();
     save_output(options->output_filename);
+
+    if (options->print_usage_statistics)
+    {
+#if PLATFORM_WIN
+        printf("        Code usage: %d / %dkb\n", _text_buffer_ptr / 1024, TEXT_SIZE / 1024);
+        printf("        Data usage: %d / %dkb\n", _data_buffer_ptr / 1024, DATA_SIZE / 1024);
+        printf("Symbol table usage: %d%%\n", 100 * ((float)_symbol_table_ptr / SYMBOL_TABLE_SIZE));
+        printf("String table usage: %d%%\n", 100 * ((float)_string_table_ptr / STRING_TABLE_SIZE));
+#endif        
+    }
 
     _options = NULL;
 

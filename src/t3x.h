@@ -16,6 +16,8 @@ typedef struct t3x_compiler_options_t {
 
 	int generate_labels;
 	char *labels_filename;
+
+	int print_usage_statistics;
 } t3x_compiler_options_t;
 
 
