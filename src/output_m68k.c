@@ -37,7 +37,7 @@
 #define CG_ALLOC        "9FFC,w"                // P: = P − w
 #define CG_DEALLOC      "DFFC,w"                // P: = P + w
 #define CG_LOCLVEC      "2A4f2F0D"              // w: = P; P: = P − 1; S0: = w
-#define CG_GLOBVEC      "23CD,a"                // [a]: = P
+#define CG_GLOBVEC      "23CF,a"                // [a]: = P
 #define CG_HALT         "223C,w70004E4F"
 #define CG_INDEX        "221FE588D081"          // A: = 4 ⋅ A + S0; P: = P + 1
 #define CG_DEREF        "2A402015"              // A: = [A]

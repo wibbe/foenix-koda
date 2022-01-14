@@ -157,12 +157,62 @@ memcopy_loop:
 	dbra d1,memcopy_loop
 	rts
 
+;* 'PRTNUM' prints the 32 bit number in D1, leading blanks are added if
+;* needed to pad the number of spaces to the number in D4.
+;* However, if the number of digits is larger than the no. in
+;* D4, all digits are printed anyway. Negative sign is also
+;* printed and counted in, positive sign is not.
+;PRTNUM	MOVE.L	D1,D3		save the number for later
+;	MOVE	D4,-(SP)	save the width value
+;	MOVE.B	#$FF,-(SP)	flag for end of digit string
+;	TST.L	D1		is it negative?
+;	BPL	PN1		if not
+;	NEG.L	D1		else make it positive
+;	SUBQ	#1,D4		one less for width count
+;PN1	DIVU	#10,D1		get the next digit
+;	BVS	PNOV		overflow flag set?
+;	MOVE.L	D1,D0		if not, save remainder
+;	AND.L	#$FFFF,D1	strip the remainder
+;	BRA	TOASCII 	skip the overflow stuff
+;PNOV	MOVE	D1,D0		prepare for long word division
+;	CLR.W	D1		zero out low word
+;	SWAP	D1		high word into low
+;	DIVU	#10,D1		divide high word
+;	MOVE	D1,D2		save quotient
+;	MOVE	D0,D1		low word into low
+;	DIVU	#10,D1		divide low word
+;	MOVE.L	D1,D0		D0 = remainder
+;	SWAP	D1		R/Q becomes Q/R
+;	MOVE	D2,D1		D1 is low/high
+;	SWAP	D1		D1 is finally high/low
+;TOASCII SWAP	D0		get remainder
+;	MOVE.B	D0,-(SP)	stack it as a digit
+;	SWAP	D0
+;	SUBQ	#1,D4		decrement width count
+;	TST.L	D1		if quotient is zero, we're done
+;	BNE	PN1
+;	SUBQ	#1,D4		adjust padding count for DBRA
+;	BMI	PN4		skip padding if not needed
+;PN3	MOVE.B	#' ',D0         display the required leading spaces
+;	BSR	GOOUT
+;	DBRA	D4,PN3
+;PN4	TST.L	D3		is number negative?
+;	BPL	PN5
+;	MOVE.B	#'-',D0         if so, display the sign
+;	BSR	GOOUT
+;PN5	MOVE.B	(SP)+,D0	now unstack the digits and display
+;	BMI	PNRET		until the flag code is reached
+;	ADD.B	#'0',D0         make into ASCII
+;	BSR	GOOUT
+;	BRA	PN5
+;PNRET	MOVE	(SP)+,D4	restore width value
+;	RTS
 
 ;
 ; ===== Multiplies the 32 bit values in D0 and D1, returning
 ;       the 32 bit result in D0.
 ;
-mult32:
+MULT32:
     move.l  d1,d4
     eor.l   d0,d4           ; see if the signs are the same
     tst.l   d0              ; take absolute value of d0
@@ -308,7 +358,7 @@ CG_LOCLVEC:	;w := P; P := P − 1; S0 := w
 	move.l a5,-(sp)
 
 CG_GLOBVEC:	; a	[a]: = P
-	move.l a7,$FEDCBA98
+	move.l a7,$01020304
 
 CG_INDEX:	; A := 4 * A + S0; P := P + 1
 	move.l (sp)+,d1

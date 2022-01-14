@@ -30,8 +30,8 @@ enum {
     DATA_SIZE               = 0x10000,
     RELOCATION_SIZE         = 10000,
     STACK_SIZE              = 100,
-    SYMBOL_TABLE_SIZE       = 1000,
-    STRING_TABLE_SIZE       = 4096,
+    SYMBOL_TABLE_SIZE       = 2048,
+    STRING_TABLE_SIZE       = 8192,
 
     SYM_GLOBF               = 1,
     SYM_CONST               = 2,
@@ -85,6 +85,7 @@ enum {
     KVAR,
     KWHILE
 };
+
 
 typedef unsigned char bool;
 #define true 1
@@ -339,6 +340,12 @@ void emit_word(int value)
     emit_byte((value >> 16) & 0xFF);
     emit_byte((value >> 8) & 0xFF);
     emit_byte(value & 0xFF);
+}
+
+void emit_allocate(int size)
+{
+    for (int i = 0; i < size; ++i)
+        emit_byte(0);
 }
 
 void text_patch_short(int address, int value)
@@ -2026,15 +2033,22 @@ void init(void)
     generate(CG_INIT, HEAP_END);
 
 #if T3X_OUTPUT_M68K
-    // Add special math routines
     generate(CG_JUMPFWD, 0);
     
+    // Heap allocation ptr
+    int heap_ptr_var = _text_buffer_ptr;
+    emit_word(HEAP_START);
+
+    // 32 byte buffer
+    int buffer_ptr_var = _text_buffer_ptr;
+    emit_allocate(32);
+
+    // Add special math routines
     _mul32_routine_address = _text_buffer_ptr + TEXT_VADDR;
     generate(CG_MUL32, 0);
 
     _div32_routine_address = _text_buffer_ptr + TEXT_VADDR;
     generate(CG_DIV32, 0);
-
 
     generate(CG_RESOLV, 0);
 #endif    
@@ -2055,6 +2069,12 @@ void init(void)
 
     add("HEAP_START", SYM_CONST, HEAP_START);
     add("HEAP_END", SYM_CONST, HEAP_END - INITIAL_STACK_SIZE);
+
+#if T3X_OUTPUT_M68K
+    // Special variables used by the standard library
+    add("__heap_ptr", SYM_GLOBF, heap_ptr_var + TEXT_VADDR - DATA_VADDR);
+    add("__buffer", SYM_GLOBF, buffer_ptr_var + TEXT_VADDR - DATA_VADDR);
+#endif    
 }
 
 
@@ -2096,8 +2116,8 @@ int t3x_compile(t3x_compiler_options_t *options)
 #if PLATFORM_WIN
         printf("        Code usage: %d / %dkb\n", _text_buffer_ptr / 1024, TEXT_SIZE / 1024);
         printf("        Data usage: %d / %dkb\n", _data_buffer_ptr / 1024, DATA_SIZE / 1024);
-        printf("Symbol table usage: %d%%\n", 100 * ((float)_symbol_table_ptr / SYMBOL_TABLE_SIZE));
-        printf("String table usage: %d%%\n", 100 * ((float)_string_table_ptr / STRING_TABLE_SIZE));
+        printf("Symbol table usage: %d / %d\n", _symbol_table_ptr, SYMBOL_TABLE_SIZE);
+        printf("String table usage: %d / %d\n", _string_table_ptr, STRING_TABLE_SIZE);
 #endif        
     }
 
