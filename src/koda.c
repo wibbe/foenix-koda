@@ -9,7 +9,8 @@
     #include "foenix/heap.h"
 #endif
 
-#include "t3x.h"
+#include "foenix_stdlib.h"
+#include "koda.h"
 
 
 enum {
@@ -109,10 +110,6 @@ bool _has_main_body = false;
     static int _output_channel = 0;
 #endif
 
-//int _output_type = 0;
-//bool _output_labels = false;
-//char *_output_labels_filename = NULL;
-
 relocation_t *_relocation_table;
 
 unsigned char *_text_buffer;
@@ -139,7 +136,7 @@ int _leaves_ptr = 0;
 int _loops[MAXLOOP];
 int _loops_ptr = 0;
 
-t3x_compiler_options_t *_options = NULL;
+koda_compiler_options_t *_options = NULL;
 
 
 int _div32_routine_address;
@@ -555,14 +552,14 @@ void save_labels(void)
 void save_output(char *output_filename)
 {
 #if PLATFORM_WIN
-    _output_target = fopen(output_filename, _options->output_type == T3X_OUTPUT_TYPE_PGZ ? "wb" : "w");
+    _output_target = fopen(output_filename, _options->output_type == KODA_OUTPUT_TYPE_PGZ ? "wb" : "w");
     if (_output_target == NULL)
         compiler_error("could not write to output file", output_filename);
 #else
     _output_channel = sys_fsys_open(output_filename, FILE_MODE_CREATE_ALWAYS | FILE_MODE_WRITE); 
 #endif  
 
-    if (_options->output_type == T3X_OUTPUT_TYPE_PGZ)
+    if (_options->output_type == KODA_OUTPUT_TYPE_PGZ)
     {
         write_pgz_header();
         write_pgz_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
@@ -622,6 +619,19 @@ void read_input_source(char *source_file)
     _program_source_len = sys_chan_read(input_channel, _program_source, PROGRAM_SIZE);
     sys_fsys_close(input_channel);
 #endif
+}
+
+void read_stdlib_source(void)
+{
+    static char * name = "stdlib.k";
+
+    if (foenix_stdlib_len >= PROGRAM_SIZE)
+        internal_error("stdlib.k too large", NULL);
+
+    memcpy(_program_source, foenix_stdlib_data, foenix_stdlib_len);
+    _program_source_len = foenix_stdlib_len;
+    _program_source_ptr = 0;
+    _program_source_file = name;
 }
 
 int read_char(void)
@@ -2051,7 +2061,7 @@ void init(void)
 }
 
 
-int t3x_compile(t3x_compiler_options_t *options)
+int koda_compile(koda_compiler_options_t *options)
 {
     _options = options;
 
@@ -2072,6 +2082,11 @@ int t3x_compile(t3x_compiler_options_t *options)
 #endif   
 
     init();
+
+    // Compile stdlib
+    read_stdlib_source();
+    program();
+    resolve();
 
     // Compile all input files
     for (int i = 0; i < options->input_files_count; ++i)

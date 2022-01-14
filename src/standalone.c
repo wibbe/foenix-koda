@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "t3x.h"
+#include "koda.h"
 
 
 void print_usage(char *name)
@@ -16,7 +16,7 @@ void print_usage(char *name)
 
 int main(int argc, char *argv[])
 {
-	t3x_compiler_options_t options = {0};
+	koda_compiler_options_t options = {0};
 
     if (argc == 1)
     {
@@ -30,13 +30,13 @@ int main(int argc, char *argv[])
     {     
         if (strcmp(argv[arg], "--pgz") == 0 || strcmp(argv[arg], "-p") == 0)
         {
-            options.output_type = T3X_OUTPUT_TYPE_PGZ;
+            options.output_type = KODA_OUTPUT_TYPE_PGZ;
             arg++;
             continue;
         }
         if (strcmp(argv[arg], "--srec") == 0 || strcmp(argv[arg], "-s") == 0)
         {
-            options.output_type = T3X_OUTPUT_TYPE_SREC;
+            options.output_type = KODA_OUTPUT_TYPE_SREC;
             arg++;
             continue;
         }       
@@ -96,6 +96,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    t3x_compile(&options);
+    koda_compile(&options);
     return 0;
 }

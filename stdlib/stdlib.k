@@ -124,6 +124,16 @@ func heap_reset() {
 	__heap_ptr = HEAP_START
 }
 
+func heap_record() {
+	return __heap_ptr
+}
+
+func heap_rewind(pos) {
+	if (pos >= HEAP_START && pos <= HEAP_END) {
+		__heap_ptr = pos
+	}
+}
+
 func heap_alloc(size) {
 	var ptr
 

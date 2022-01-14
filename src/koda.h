@@ -1,10 +1,10 @@
 
-#ifndef T3X_H
-#define T3X_H
+#ifndef KODA_H
+#define KODA_H
 
 enum {
-	T3X_OUTPUT_TYPE_PGZ    = 0,
-    T3X_OUTPUT_TYPE_SREC   = 1,
+	KODA_OUTPUT_TYPE_PGZ    = 0,
+    KODA_OUTPUT_TYPE_SREC   = 1,
 };
 
 typedef struct t3x_compiler_options_t {
@@ -18,10 +18,10 @@ typedef struct t3x_compiler_options_t {
 	char *labels_filename;
 
 	int print_usage_statistics;
-} t3x_compiler_options_t;
+} koda_compiler_options_t;
 
 
-int t3x_compile(t3x_compiler_options_t *options);
+int koda_compile(koda_compiler_options_t *options);
 
 
 #endif
