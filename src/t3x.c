@@ -4,10 +4,17 @@
 #include <string.h>
 #include <ctype.h>
 
+#if PLATFORM_FOENIX
+    #include "foenix/syscall.h"
+    #include "foenix/heap.h"
+#endif
+
+#include "t3x.h"
+
 
 enum {
     BPW                     = 4,
-    PROGRAM_SIZE            = 0x10000,
+    PROGRAM_SIZE            = 0xF000,
 
 #if T3X_OUTPUT_M68K
     TEXT_VADDR              = 0x00020000,
@@ -26,9 +33,6 @@ enum {
     SYMBOL_TABLE_SIZE       = 1000,
     STRING_TABLE_SIZE       = 4096,
 
-    OUTPUT_FILE_TYPE_PGZ    = 1,
-    OUTPUT_FILE_TYPE_SREC   = 2,
-
     SYM_GLOBF               = 1,
     SYM_CONST               = 2,
     SYM_VECTOR              = 4,
@@ -42,6 +46,7 @@ enum {
 
     HEAP_START              = 0x00060000,
     HEAP_END                = 0x00100000,
+    INITIAL_STACK_SIZE      = 0x40000,          // Reserve space for a 256k stack
 };
 
 enum {
@@ -58,7 +63,6 @@ enum {
     COND,
     CONJ, 
     DISJ,
-    INC,
     LBRACK, 
     LPAREN, 
     RBRACK, 
@@ -108,17 +112,17 @@ bool _has_main_body = false;
 #ifdef PLATFORM_WIN
     static FILE * _output_target = NULL;
 #else
-    #error "Platform not supported"
+    static int _output_channel = 0;
 #endif
 
-int _output_type = 0;
-bool _output_labels = false;
-char *_output_labels_filename = NULL;
+//int _output_type = 0;
+//bool _output_labels = false;
+//char *_output_labels_filename = NULL;
 
-relocation_t _relocation_table[RELOCATION_SIZE];
+relocation_t *_relocation_table;
 
-unsigned char _text_buffer[TEXT_SIZE];
-unsigned char _data_buffer[DATA_SIZE];
+unsigned char *_text_buffer;
+unsigned char *_data_buffer;
 
 int _relocation_ptr = 0;
 int _text_buffer_ptr = 0;
@@ -127,10 +131,10 @@ int _local_frame_ptr = 0;
 
 int _accumulator_loaded = 0;
 
-char _string_table[STRING_TABLE_SIZE];
+char *_string_table;
 int _string_table_ptr = 0;
 
-symbol_t _symbol_table[SYMBOL_TABLE_SIZE];
+symbol_t *_symbol_table;
 int _symbol_table_ptr = 0;
 
 bool _parsing_function = false;
@@ -140,6 +144,8 @@ int _leaves[MAXLOOP];
 int _leaves_ptr = 0;
 int _loops[MAXLOOP];
 int _loops_ptr = 0;
+
+t3x_compiler_options_t *_options = NULL;
 
 
 #ifdef T3X_OUTPUT_M68K
@@ -157,6 +163,17 @@ void compiler_error(char *message, char *extra)
         fprintf(stderr, ": %s", extra);
     fputc('\n', stderr);
     exit(1);
+#else
+    char buff[64];
+    snprintf(buff, 64, "error: %s(%d): %s", _program_source_file, _current_line + 1, message);
+    sys_chan_write(0, buff, strlen(buff));
+
+    if (extra != NULL)
+    {
+        sys_chan_write(0, ": ", 2);
+        sys_chan_write(0, extra, strlen(extra));
+        sys_chan_write_b(0, '\n');
+    }
 #endif  
 }
 
@@ -164,6 +181,8 @@ void internal_error(char *message, char *extra)
 {
 #if PLATFORM_WIN    
     fprintf(stderr, "internal error\n");
+#else
+    sys_chan_write(0, "internal error\n", 15);
 #endif  
     compiler_error(message, extra);
 }
@@ -491,7 +510,10 @@ void write_output_word(int x)
     fputc(x>>8 & 0xff, _output_target);
     fputc(x & 0xff, _output_target);
 #else
-    #error "Platform not supported"
+    sys_chan_write_b(_output_channel, x>>24 & 0xff);
+    sys_chan_write_b(_output_channel, x>>16 & 0xff);
+    sys_chan_write_b(_output_channel, x>>8 & 0xff);
+    sys_chan_write_b(_output_channel, x & 0xff);
 #endif
 }
 
@@ -500,16 +522,16 @@ void write_output_byte(unsigned char ch)
 #ifdef PLATFORM_WIN
     fputc(ch, _output_target);
 #else
-    #error "Platform not supported"
+    sys_chan_write_b(_output_channel, ch);
 #endif
 }
 
 void save_labels(void)
 {
 #if PLATFORM_WIN
-    _output_target = fopen(_output_labels_filename, "w");
+    _output_target = fopen(_options->labels_filename, "w");
     if (_output_target == NULL)
-        compiler_error("could not write to output labels file", _output_labels_filename);
+        compiler_error("could not write to output labels file", _options->labels_filename);
 
     for (int i = 0; i < _symbol_table_ptr; ++i)
     {
@@ -532,13 +554,15 @@ void save_labels(void)
 void save_output(char *output_filename)
 {
 #if PLATFORM_WIN
-    _output_target = fopen(output_filename, _output_type == OUTPUT_FILE_TYPE_PGZ ? "wb" : "w");
+    _output_target = fopen(output_filename, _options->output_type == T3X_OUTPUT_TYPE_PGZ ? "wb" : "w");
     if (_output_target == NULL)
         compiler_error("could not write to output file", output_filename);
+#else
+    _output_channel = sys_fsys_open(output_filename, FILE_MODE_CREATE_ALWAYS | FILE_MODE_WRITE); 
 #endif  
 
 #if T3X_OUTPUT_M68K
-    if (_output_type == OUTPUT_FILE_TYPE_PGZ)
+    if (_options->output_type == T3X_OUTPUT_TYPE_PGZ)
     {
         write_pgz_header();
         write_pgz_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
@@ -559,9 +583,12 @@ void save_output(char *output_filename)
 #if PLATFORM_WIN
     fclose(_output_target);
     _output_target = NULL;
+#else
+    sys_fsys_close(_output_channel);
+    _output_channel = -1;
 #endif  
 
-    if (_output_labels)
+    if (_options->generate_labels)
         save_labels();
 }
 
@@ -575,7 +602,7 @@ char _program_source[PROGRAM_SIZE];
 int _program_source_ptr = 0;
 int _program_source_len;
 
-bool read_input_source(char *source_file)
+void read_input_source(char *source_file)
 {
     _program_source_file = source_file;
     _current_line = 0;
@@ -593,7 +620,12 @@ bool read_input_source(char *source_file)
     fclose(input);
 
 #else
-    #error "Platform not supported"
+    int input_channel = sys_fsys_open(source_file, FILE_MODE_READ);
+    if (input_channel == -1)
+        compiler_error("could not read source file", source_file);
+
+    _program_source_len = sys_chan_read(input_channel, _program_source, PROGRAM_SIZE);
+    sys_fsys_close(input_channel);
 #endif
 }
 
@@ -656,7 +688,6 @@ typedef struct operator_t {
 operator_t _operators[] = {
     { 7, 1, "%",    BINOP,  CG_MOD      },
     { 6, 1, "+",    BINOP,  CG_ADD      },
-    { 0, 2, "++",   INC,    NULL        },
     { 7, 1, "*",    BINOP,  CG_MUL      },
     { 0, 1, ",",    COMMA,  NULL        },
     { 0, 1, "(",    LPAREN, NULL        },
@@ -1465,7 +1496,7 @@ symbol_t *address(int level, int *byte_ptr)
         if (level == 2)
             compiler_error("invalid address", sym->name);
     }
-    else if (level == 0 || _token == LBRACK || _token == BYTEOP || _token == INC)
+    else if (level == 0 || _token == LBRACK || _token == BYTEOP)
     {
         spill();
         load(sym);
@@ -1868,11 +1899,6 @@ void assignment_or_call(void)
         else
             store(sym);
     }
-    else if (_token == INC)
-    {
-        generate(CG_INC, 0);
-        scan();
-    }
     else
     {
         compiler_error("syntax error", _token_str);
@@ -1974,7 +2000,10 @@ void resolve_main(void)
 
 void init(void)
 {
-    generate(CG_INIT, 0);
+    _text_buffer_ptr = 0;
+    _data_buffer_ptr = 0;
+
+    generate(CG_INIT, HEAP_END);
 
     find_operator("="); _equal_op = _token_op_id;
     find_operator("-"); _minus_op = _token_op_id;
@@ -1989,120 +2018,55 @@ void init(void)
     builtin("memcopy", 3, CG_FUNC_MEMCOPY);
 
     add("HEAP_START", SYM_CONST, HEAP_START);
-    add("HEAP_END", SYM_CONST, HEAP_END);
+    add("HEAP_END", SYM_CONST, HEAP_END - INITIAL_STACK_SIZE);
 }
 
-void print_usage(char *name)
+
+int t3x_compile(t3x_compiler_options_t *options)
 {
-#ifdef PLATFORM_WIN
-    printf("usage: %s [-o <output>] [--pgz/-p] [--srec/-s] [--labels/-l <labels-file>] <input-file...>\n", name);
-#endif  
-}
+    _options = options;
 
-int main(int argc, char *argv[])
-{
-    _output_type = OUTPUT_FILE_TYPE_PGZ;
-    char * input_files[32];
-    char * output_file = NULL;
-    int input_files_count = 0;
+#if PLATFORM_WIN
+    _text_buffer = malloc(TEXT_SIZE);
+    _data_buffer = malloc(DATA_SIZE);
+    _string_table = malloc(STRING_TABLE_SIZE);
+    _symbol_table = malloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
+    _relocation_table = malloc(sizeof(relocation_t) * RELOCATION_SIZE);
+#else
+    void *current_heap_pos = heap_position();
 
-    if (argc == 1)
-    {
-        print_usage(argv[0]);
-        return 1;
-    }
-
-    // Parse arguments
-    int arg = 1;
-    while (arg < argc)
-    {
-#if T3X_OUTPUT_M68K        
-        if (strcmp(argv[arg], "--pgz") == 0 || strcmp(argv[arg], "-p") == 0)
-        {
-            _output_type = OUTPUT_FILE_TYPE_PGZ;
-            arg++;
-            continue;
-        }
-        if (strcmp(argv[arg], "--srec") == 0 || strcmp(argv[arg], "-s") == 0)
-        {
-            _output_type = OUTPUT_FILE_TYPE_SREC;
-            arg++;
-            continue;
-        }     
-#endif      
-
-        if (strcmp(argv[arg], "-o") == 0)
-        {
-            if (arg >= argc - 1)
-            {
-#ifdef PLATFORM_WIN             
-                printf("error: missing output filename\n");
-#endif              
-                print_usage(argv[0]);
-                return 1;
-            }
-            output_file = argv[arg + 1];
-            arg += 2;
-            continue;
-        }
-
-        if (strcmp(argv[arg], "--labels") == 0 || strcmp(argv[arg], "-l") == 0)
-        {
-            if (arg >= argc - 1)
-            {
-#ifdef PLATFORM_WIN             
-                printf("error: missing label filename\n");
-#endif              
-                print_usage(argv[0]);
-                return 1;
-            }
-            _output_labels = true;
-            _output_labels_filename = argv[arg + 1];
-            arg += 2;
-            continue;
-        }
-
-        // Must be input file
-        input_files[input_files_count++] = argv[arg];
-        arg++;
-    }
-
-    // Check arguments
-
-    if (output_file == NULL)
-    {
-#ifdef PLATFORM_WIN
-        printf("Error: missing output file\n");     
-#endif      
-        print_usage(argv[0]);
-        return 1;
-    }
-
-    if (input_files_count == 0)
-    {
-#ifdef PLATFORM_WIN
-        printf("error: no input files to compile\n");
-#endif      
-        print_usage(argv[0]);
-        return 1;
-    }
+    _text_buffer = heap_alloc(TEXT_SIZE);
+    _data_buffer = heap_alloc(DATA_SIZE);
+    _string_table = heap_alloc(STRING_TABLE_SIZE);
+    _symbol_table = heap_alloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
+    _relocation_table = heap_alloc(sizeof(relocation_t) * RELOCATION_SIZE);
+#endif   
 
     init();
 
     // Compile all input files
-
-    for (int i = 0; i < input_files_count; ++i)
+    for (int i = 0; i < options->input_files_count; ++i)
     {
-#ifdef PLATFORM_WIN        
-        printf("Compiling %s\n", input_files[i]);
-#endif        
-        read_input_source(input_files[i]);
+        read_input_source(options->input_files[i]);
         program();
         resolve();
     }
 
     resolve_main();
+    save_output(options->output_filename);
 
-    save_output(output_file);
-    return 0;
+    _options = NULL;
+
+#if PLATFORM_WIN
+    free(_text_buffer);
+    free(_data_buffer);
+    free(_string_table);
+    free(_symbol_table);
+    free(_relocation_table);
+#else    
+    heap_rewind(current_heap_pos);
+#endif    
+
+    return 1;
 }
+

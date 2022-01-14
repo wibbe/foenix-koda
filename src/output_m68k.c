@@ -20,7 +20,7 @@
  * - Word and long-word operands must be aligned on word boundaries (even addresses)
  */
 
-#define CG_INIT         ""
+#define CG_INIT         "202F0004222F00082E7C,w2F002F01"
 #define CG_CALL_MAIN    "4EB9,w220070004E4F"
 #define CG_RESOLVE_END  ",s"
 #define CG_PUSH         "2F00"                  // P: = P − 1; S0: = A
@@ -61,8 +61,8 @@
 #define CG_AND          "221FC081"
 #define CG_OR           "221F8081"
 #define CG_XOR          "221FB380"
-#define CG_SHL          ""
-#define CG_SHR          ""
+#define CG_SHL          "221FE1A92001"
+#define CG_SHR          "221FE0A92001"
 #define CG_EQ           "221F24007000B481660270FF"
 #define CG_NEQ          "221F24007000B481670270FF"
 #define CG_LT           "221F24007000B4816F0270FF"
@@ -104,17 +104,15 @@ void write_pgz_segment(int load_address, unsigned char *start, int size)
 #ifdef PLATFORM_WIN
     fwrite(start, size, 1, _output_target);
 #else
-    #error "Platform not supported"
+    sys_chan_write(_output_channel, start, size);
 #endif
 }
 
 void write_srec_byte(unsigned char data)
 {
     unsigned char output[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
-#ifdef PLATFORM_WIN
     write_output_byte(output[(data >> 4) & 0x0F]);
     write_output_byte(output[data & 0x0F]);
-#endif
 }
 
 void write_srec_word(int data)
@@ -127,8 +125,11 @@ void write_srec_word(int data)
 
 void write_srec_header(void)
 {
+    const char *header = "S00B00007365673130303030C4\n";
 #ifdef PLATFORM_WIN
-    fprintf(_output_target, "S00B00007365673130303030C4\n");
+    fprintf(_output_target, header);
+#else
+    sys_chan_write(_output_channel, (char *)header, strlen(header));
 #endif  
 }
 
@@ -136,6 +137,8 @@ void write_srec_record(unsigned char *data, int address, int byte_count)
 {
 #ifdef PLATFORM_WIN
     fprintf(_output_target, "S3");
+#else
+    sys_chan_write(_output_channel, "S3", 2);    
 #endif
 
     int data_count = byte_count + 5;

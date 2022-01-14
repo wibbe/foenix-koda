@@ -159,7 +159,11 @@ memcopy_loop:
 
 
 CG_INIT:
-	; TODO: We need to setup a propert stack pointer here
+    move.l (4,sp),d0            ; pop the parameter count supplied from the system
+    move.l (8,sp),d1            ; pop the parameters list supplied from the system
+	move.l #$FEDCBA98,sp 		; setup a new stack pointer at the end of the HEAP
+	move.l d0,-(sp)				; push parameter count
+	move.l d1,-(sp)				; push parameter list, these will be used as arguments to main()
 
 CG_PUSH:	; P: = P − 1; S0: = A
 	move.l d0,-(sp)
@@ -182,9 +186,6 @@ CG_LDGLOB: 		; a	P: = P − 1; S0: = A; A: = [a]
 
 G_LDLOCL: 	; w	P: = P − 1; S0: = A; A: = [F + w]
 	move.l $FED(a6),d0
-	move.l 1(a6),d0
-	move.l 4(a6),d0
-	move.l -1(a6),d0
 
 CG_STGLOB: 	; a	[a]: = A; A: = S0; P: = P + 1
 	move.l d0,$FEDCAB98
@@ -397,3 +398,13 @@ CG_GE:		; if S0 ≥ A then A: = −1 else A: = 0; always: P: = P + 1
 	bgt ge_done 		; d1 < d2
 	move.l #$FFFFFFFF,d0
 ge_done:
+
+CG_SHL:		;	A := S0 ⋅ 2A; P := P + 1 (left shift)
+	move.l (sp)+,d1
+	lsl.l d0,d1
+	move.l d1,d0
+
+CG_SHR:		;	A := S0 div 2A; P := P + 1 (r ight shift)
+	move.l (sp)+,d1
+	lsr.l d0,d1
+	move.l d1,d0
