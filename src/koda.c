@@ -136,6 +136,9 @@ enum {
     OP_INCGLOB,
     OP_INCLOCL,
     OP_INC,
+
+    // Special opcodes used internally for optimization
+
     OP_COUNT,
 };
 

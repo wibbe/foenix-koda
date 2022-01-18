@@ -438,6 +438,7 @@ lognot_done:
 CG_ADD:		;	A := S0 + A; P := P + 1
 	;move.l (sp)+,d1
 	add.l (sp)+,d0
+	add.l #$05,d0
 
 CG_SUB:		;	A: = S0 − A; P: = P + 1
 	move.l (sp)+,d1

@@ -260,6 +260,11 @@ void op_load_value(int value)
         emit_code(CG_LDVAL_SHORT, value);
 }
 
+void emit_addq(int value)
+{
+    emit_short(0x5080 | ((value & 0x07) << 9));
+}
+
 void emit_opcode(int opcode, int value)
 {
     _last_opcode = -1;
@@ -283,7 +288,12 @@ void generate(int opcode, int value)
     if (opcode == OP_JUMPFWD || opcode == OP_JUMPBACK || opcode == OP_JMPTRUE ||
         opcode == OP_RESOLV || opcode == OP_MARK || opcode == OP_JMPFALSE)
     {
+        // Make sure to emit the previous opcode first if we have one
+        if (_last_opcode != -1)
+            emit_opcode(_last_opcode, _last_value);
+
         emit_opcode(opcode, value);
+        return;
     }
 
     if (_last_opcode == -1)
@@ -294,6 +304,11 @@ void generate(int opcode, int value)
     }
     else
     {
+        // TODO: Could we have a larger buffer of opcodes, and maybe optimize out
+        //       constant expressions like '1 + 4'?
+        // - We might be able to optimize expressions like 'a + 1' if we replace the OP_LDVAL + OP_PUSH
+        //   with a new OP_LDVAL_SP opcode, instead of emitting CG_LDVAL_SP directly.
+
         if (_last_opcode == OP_LDVAL && opcode == OP_PUSH)          // pushing im value onto stack?
         {
             emit_code(CG_LDVAL_SP, _last_value);
@@ -312,6 +327,20 @@ void generate(int opcode, int value)
         else if (_last_opcode == OP_LDGLOBAL && opcode == OP_PUSH)
         {
             emit_code(CG_LDGLOBAL_SP, _last_value);
+            _last_opcode = -1;
+        }
+        else if (_last_opcode == OP_LDVAL && opcode == OP_ADD)
+        {
+            if (_last_value >= 0 && _last_value < 8)
+            {
+                emit_addq(_last_value);
+            }
+            else
+            {
+                emit_opcode(_last_opcode, _last_value);
+                emit_opcode(opcode, value);
+            }
+
             _last_opcode = -1;
         }
         else
