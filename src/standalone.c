@@ -48,6 +48,13 @@ int main(int argc, char *argv[])
             continue;
         }
 
+        if (strcmp(argv[arg], "--nostdlib") == 0)
+        {
+            options.no_stdlib = 1;
+            arg++;
+            continue;
+        }
+
         if (strcmp(argv[arg], "-o") == 0)
         {
             if (arg >= argc - 1)

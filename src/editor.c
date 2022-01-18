@@ -224,7 +224,6 @@ static void doc_save_as(void)
 	memcpy(_document_name, _buffer_line->data, _buffer_line->len);
 	_document_name[_buffer_line->len] = 0;
 
-	sys_fsys_delete(_document_name);
 	int file_chan = sys_fsys_open(_document_name, FILE_MODE_CREATE_ALWAYS | FILE_MODE_WRITE);
 	if (file_chan <= 0)
 	{
@@ -242,6 +241,7 @@ static void doc_save_as(void)
 		it = it->next;
 	}	
 
+	sys_chan_flush(file_chan);
 	sys_fsys_close(file_chan);
 	return;
 }
@@ -753,7 +753,7 @@ int main(int argc, char * argv[])
 	doc_new();
 	update_cursor();
 
-	display_statusbar("Foenix Text Editor, Ctrl+Q to quit");
+	display_statusbar("Foenix Koda IDE, Ctrl+Q to quit");
 		
 	_command_prompt_active = false;
 	_buffer_line = alloc_line(128);

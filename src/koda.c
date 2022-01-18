@@ -32,8 +32,9 @@ enum {
     SYM_VECTOR              = 4,
     SYM_DECLARATION         = 8,
     SYM_FUNCTION            = 16,
+    SYM_MEMORY              = 32,
 
-    MAXTBL                  = 128,
+    MAXTBL                  = 1024,
     MAXLOOP                 = 100,
 
     TOKEN_LEN               = 128,
@@ -80,6 +81,65 @@ enum {
     KWHILE
 };
 
+enum {
+    OP_NONE,
+    OP_INIT,
+    OP_PUSH,
+    OP_LDVAL,
+    OP_LDADDR,
+    OP_LDLOCALREF,
+    OP_LDGLOBAL,
+    OP_LDLOCAL,
+    OP_CLEAR,
+    OP_STGLOB,
+    OP_STLOCL,
+    OP_STINDR,
+    OP_STINDB,
+    OP_ALLOC,
+    OP_DEALLOC,
+    OP_LOCLVEC,
+    OP_GLOBVEC,
+    OP_HALT,
+    OP_INDEX,
+    OP_DEREF,
+    OP_INDXB,
+    OP_DREFB,
+    OP_CALL,
+    OP_MARK,
+    OP_JUMPFWD,
+    OP_JUMPBACK,
+    OP_ENTER,
+    OP_EXIT,
+    OP_RESOLV,
+    OP_NEG,
+    OP_INV,
+    OP_LOGNOT,
+    OP_ADD,
+    OP_SUB,
+    OP_MUL,
+    OP_DIV,
+    OP_MOD,
+    OP_AND,
+    OP_OR,
+    OP_XOR,
+    OP_SHL,
+    OP_SHR,
+    OP_EQ,
+    OP_NEQ,
+    OP_LT,
+    OP_LE,
+    OP_GT,
+    OP_GE,
+    OP_JMPFALSE,
+    OP_JMPTRUE,
+    OP_FOR,
+    OP_INCGLOB,
+    OP_INCLOCL,
+    OP_INC,
+    OP_COUNT,
+};
+
+
 
 typedef unsigned char bool;
 #define true 1
@@ -119,6 +179,8 @@ int _relocation_ptr = 0;
 int _text_buffer_ptr = 0;
 int _data_buffer_ptr = 0;
 int _local_frame_ptr = 0;
+
+int _start_location = 0;
 
 int _accumulator_loaded = 0;
 
@@ -281,12 +343,12 @@ symbol_t *add(char *symbol_name, int flags, int value)
  * Emitter
  */
 
-void generate(char *code, int value);
+void generate(int opcode, int value);
 
 void spill(void)
 {
     if (_accumulator_loaded)
-        generate(CG_PUSH, 0);
+        generate(OP_PUSH, 0);
     else
         _accumulator_loaded = 1;
 }
@@ -309,7 +371,7 @@ int hex(int ch)
         return tolower(ch) - 'a' + 10;
 }
 
-void emit_byte(unsigned char value)
+void emit_byte(int value)
 {
     _text_buffer[_text_buffer_ptr++] = value;
 }
@@ -415,7 +477,7 @@ void resolve(void)
     }   
 }
 
-void generate(char *code, int value)
+void emit_code(char *code, int value)
 {
     while (*code)
     {
@@ -481,10 +543,10 @@ void generate(char *code, int value)
 
 void builtin(char *name, int arity, char *code)
 {
-    generate(CG_JUMPFWD, 0);
+    generate(OP_JUMPFWD, 0);
     add(name, SYM_GLOBF | SYM_FUNCTION | (arity << 8), _text_buffer_ptr);
-    generate(code, 0);
-    generate(CG_RESOLV, 0);
+    emit_code(code, 0);
+    generate(OP_RESOLV, 0);
 }
 
 int align(int x, int a)
@@ -543,6 +605,7 @@ void save_labels(void)
 
     fprintf(_output_target, "%08X\tmul32\n", _mul32_routine_address);
     fprintf(_output_target, "%08X\tdiv32\n", _div32_routine_address);
+    fprintf(_output_target, "%08X\t_start\n", _start_location);
 
     fclose(_output_target);
     _output_target = NULL;
@@ -688,42 +751,42 @@ typedef struct operator_t {
     int len;
     char *name;
     int tok;
-    char *code;
+    int code;
 } operator_t;
 
 
 operator_t _operators[] = {
-    { 7, 1, "%",    BINOP,  CG_MOD      },
-    { 6, 1, "+",    BINOP,  CG_ADD      },
-    { 7, 1, "*",    BINOP,  CG_MUL      },
-    { 0, 1, ",",    COMMA,  NULL        },
-    { 0, 1, "(",    LPAREN, NULL        },
-    { 0, 1, ")",    RPAREN, NULL        },
-    { 0, 1, "[",    LBRACK, NULL        },
-    { 0, 1, "]",    RBRACK, NULL        },
-    { 5, 1, "&",    BINOP,  CG_AND      },
-    { 1, 2, "&&",   DISJ,   NULL        },
-    { 6, 1, "-",    BINOP,  CG_SUB      },
-    { 5, 1, "^",    BINOP,  CG_XOR      },
-    { 0, 1, "@",    ADDROF, NULL        },
-    { 5, 1, "|",    BINOP,  CG_OR       },
-    { 2, 2, "||",   CONJ,   NULL        },
-    { 0, 1, "!",    UNOP,   CG_LOGNOT   },
-    { 0, 1, "?",    COND,   NULL        },
-    { 7, 1, "/",    BINOP,  CG_DIV      },
-    { 0, 1, "~",    UNOP,   CG_INV      },
-    { 0, 1, ":",    COLON,  NULL        },
-    { 0, 2, "::",   BYTEOP, NULL        },
-    { 3, 2, "!=",   BINOP,  CG_NEQ      },
-    { 4, 1, "<",    BINOP,  CG_LT       },
-    { 4, 2, "<=",   BINOP,  CG_LE       },
-    { 5, 2, "<<",   BINOP,  CG_SHL      },
-    { 4, 1, ">",    BINOP,  CG_GT       },
-    { 4, 2, ">=",   BINOP,  CG_GE       },
-    { 5, 2, ">>",   BINOP,  CG_SHR      },
-    { 0, 1, "=",    ASSIGN, NULL        },
-    { 3, 2, "==",   BINOP,  CG_EQ       },
-    { 0, 0, NULL,   0,      NULL        }
+    { 7, 1, "%",    BINOP,  OP_MOD      },
+    { 6, 1, "+",    BINOP,  OP_ADD      },
+    { 7, 1, "*",    BINOP,  OP_MUL      },
+    { 0, 1, ",",    COMMA,  0           },
+    { 0, 1, "(",    LPAREN, 0           },
+    { 0, 1, ")",    RPAREN, 0           },
+    { 0, 1, "[",    LBRACK, 0           },
+    { 0, 1, "]",    RBRACK, 0           },
+    { 5, 1, "&",    BINOP,  OP_AND      },
+    { 1, 2, "&&",   DISJ,   0           },
+    { 6, 1, "-",    BINOP,  OP_SUB      },
+    { 5, 1, "^",    BINOP,  OP_XOR      },
+    { 0, 1, "@",    ADDROF, 0           },
+    { 5, 1, "|",    BINOP,  OP_OR       },
+    { 2, 2, "||",   CONJ,   0           },
+    { 0, 1, "!",    UNOP,   OP_LOGNOT   },
+    { 0, 1, "?",    COND,   0           },
+    { 7, 1, "/",    BINOP,  OP_DIV      },
+    { 0, 1, "~",    UNOP,   OP_INV      },
+    { 0, 1, ":",    COLON,  0           },
+    { 0, 2, "::",   BYTEOP, 0           },
+    { 3, 2, "!=",   BINOP,  OP_NEQ      },
+    { 4, 1, "<",    BINOP,  OP_LT       },
+    { 4, 2, "<=",   BINOP,  OP_LE       },
+    { 5, 2, "<<",   BINOP,  OP_SHL      },
+    { 4, 1, ">",    BINOP,  OP_GT       },
+    { 4, 2, ">=",   BINOP,  OP_GE       },
+    { 5, 2, ">>",   BINOP,  OP_SHR      },
+    { 0, 1, "=",    ASSIGN, 0           },
+    { 3, 2, "==",   BINOP,  OP_EQ       },
+    { 0, 0, NULL,   0,      0           }
 };
 
 const char * _operator_symbols = "%+*;,()[]=&|^@~:\\/!<>-?";
@@ -878,10 +941,10 @@ int scan_next_token(void)
     if (ch == '}')
         return BLOCK_END;
 
-    if (isalpha(ch) || '_' == ch)
+    if (isalpha(ch) || ch == '_')
     {
         int i = 0;
-        while (isalpha(ch) || '_' == ch || isdigit(ch))
+        while (isalpha(ch) || ch == '_' || ch == '.' || isdigit(ch))
         {
             if (i >= TOKEN_LEN - 1)
             {
@@ -1124,18 +1187,18 @@ void var_declaration(int glob)
         {
             if (var->flags & SYM_VECTOR)
             {
-                generate(CG_ALLOC, size * BPW);
-                generate(CG_GLOBVEC, _data_buffer_ptr);
+                generate(OP_ALLOC, size * BPW);
+                generate(OP_GLOBVEC, _data_buffer_ptr);
             }
             data_word(0);
         }
         else
         {
-            generate(CG_ALLOC, size * BPW);
+            generate(OP_ALLOC, size * BPW);
             _local_frame_ptr -= size * BPW;
             if (var->flags & SYM_VECTOR)
             {
-                generate(CG_LOCLVEC, 0);
+                generate(OP_LOCLVEC, 0);
                 _local_frame_ptr -= BPW;
             }
             var->value = _local_frame_ptr;
@@ -1174,29 +1237,28 @@ void const_declaration(int glob)
 
 void struct_declaration(int glob)
 {
-    symbol_t *sym;
-    int i;
-
     scan();
     expect(SYMBOL, "symbol");
-    sym = add(_token_str, glob | SYM_CONST, 0);
+    symbol_t *struct_sym = add(_token_str, glob | SYM_CONST, 0);
     scan();
-    i = 0;
-    expect_equal_sign();
+    int i = 0;
 
-    while (1)
+    expect(BLOCK_START, "{");
+    scan();
+
+    while (_token != BLOCK_END)
     {
         expect(SYMBOL, "symbol");
-        add(_token_str, glob | SYM_CONST, i++);
-        scan();
 
-        if (_token != COMMA)
-            break;
+        char member[TOKEN_LEN];
+        snprintf(member, TOKEN_LEN, "%s.%s", struct_sym->name, _token_str);
 
+        add(member, glob | SYM_CONST, i++);
         scan();
     }
 
-    sym->value = i;
+    struct_sym->value = i;
+    scan();
 }
 
 void forward_declaration(void)
@@ -1237,8 +1299,8 @@ void resolve_forward(int loc, int fn)
     }
 }
 
-void block_statement();
-void statement(void);
+bool block_statement(bool function_scope);
+bool statement(void);
 
 
 void function_declaration(void)
@@ -1249,7 +1311,7 @@ void function_declaration(void)
     int local_addr = 2 * BPW;
     int number_arguments = 0;
 
-    generate(CG_JUMPFWD, 0);
+    generate(OP_JUMPFWD, 0);
 
     scan();
     symbol_t *func_sym = add(_token_str, SYM_GLOBF | SYM_FUNCTION, _text_buffer_ptr);
@@ -1290,15 +1352,18 @@ void function_declaration(void)
     expect_right_paren();
 
     func_sym->flags |= number_arguments << 8;
-    generate(CG_ENTER, 0);
+    generate(OP_ENTER, 0);
     _parsing_function = true;
     
-    block_statement();
+    bool last_was_return = block_statement(true);
 
     _parsing_function = false;
-    generate(CG_CLEAR, 0);
-    generate(CG_EXIT, 0);
-    generate(CG_RESOLV, 0);
+    if (!last_was_return)
+    {
+        generate(OP_CLEAR, 0);
+        generate(OP_EXIT, 0);
+    }
+    generate(OP_RESOLV, 0);
 
     _symbol_table_ptr = old_symbol_table_ptr;
     _local_frame_ptr = 0;
@@ -1358,16 +1423,16 @@ void function_call(symbol_t *fn)
 
     if (fn->flags & SYM_DECLARATION)
     {
-        generate(CG_CALL, TEXT_VADDR + fn->value);
+        generate(OP_CALL, TEXT_VADDR + fn->value);
         fn->value = _text_buffer_ptr - BPW;
     }
     else
     {
-        generate(CG_CALL, TEXT_VADDR + fn->value);
+        generate(OP_CALL, TEXT_VADDR + fn->value);
     }
 
     if (argument_count != 0)
-        generate(CG_DEALLOC, argument_count * BPW);
+        generate(OP_DEALLOC, argument_count * BPW);
 
     _accumulator_loaded = 1;
 }
@@ -1410,7 +1475,7 @@ int make_table(void)
         else if (dynamic)
         {
             expression(1);
-            generate(CG_STGLOB, 0);
+            generate(OP_STGLOB, 0);
             tbl[n] = 0;
             af[n++] = _text_buffer_ptr - BPW;
             if (RPAREN == _token)
@@ -1470,17 +1535,17 @@ int make_table(void)
 void load(symbol_t *sym)
 {
     if (sym->flags & SYM_GLOBF)
-        generate(CG_LDGLOBAL, sym->value);
+        generate(OP_LDGLOBAL, sym->value);
     else
-        generate(CG_LDLOCAL, sym->value);
+        generate(OP_LDLOCAL, sym->value);
 }
 
 void store(symbol_t *sym)
 {
     if (sym->flags & SYM_GLOBF)
-        generate(CG_STGLOB, sym->value);
+        generate(OP_STGLOB, sym->value);
     else
-        generate(CG_STLOCL, sym->value);
+        generate(OP_STLOCL, sym->value);
 }
 
 void factor(void);
@@ -1492,11 +1557,12 @@ symbol_t *address(int level, int *byte_ptr)
 
     if (sym->flags & SYM_CONST)
     {
-        if (level > 0)
+        if (level > 0 && !(sym->flags & SYM_MEMORY))
             compiler_error("invalid address", sym->name);
 
         spill();
-        generate(CG_LDVAL, sym->value);
+        generate(OP_LDVAL, sym->value);
+        //op_load_value(sym->value);
     }
     else if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION))
     {
@@ -1511,7 +1577,7 @@ symbol_t *address(int level, int *byte_ptr)
 
     if (_token == LBRACK || _token == BYTEOP)
     {
-        if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST))
+        if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST) && !(sym->flags & SYM_MEMORY))
             compiler_error("bad subscript", sym->name);
     }
 
@@ -1522,11 +1588,17 @@ symbol_t *address(int level, int *byte_ptr)
         expression(0);
         expect(RBRACK, "']'");
         scan();
+
+        // Handle the special mem variable
+        if (sym && sym->flags & SYM_MEMORY)
+            generate(OP_INDXB, 0);
+        else
+            generate(OP_INDEX, 0);
+
         sym = NULL;
-        generate(CG_INDEX, 0);
 
         if (_token == LBRACK || _token == BYTEOP || level == 0)
-            generate(CG_DEREF, 0);
+            generate(OP_DEREF, 0);
     }
 
     if (_token == BYTEOP)
@@ -1535,10 +1607,10 @@ symbol_t *address(int level, int *byte_ptr)
         scan();
         factor();
         sym = NULL;
-        generate(CG_INDXB, 0);
+        generate(OP_INDXB, 0);
 
         if (level == 0)
-            generate(CG_DREFB, 0);
+            generate(OP_DREFB, 0);
     }
     return sym;
 }
@@ -1552,7 +1624,8 @@ void factor(void)
     if (_token == INTEGER)
     {
         spill();
-        generate(CG_LDVAL, _token_value);
+        generate(OP_LDVAL, _token_value);
+        //op_load_value(_token_value);
         scan();
     }
     else if (_token == SYMBOL)
@@ -1565,13 +1638,13 @@ void factor(void)
     else if (_token == STRING)
     {
         spill();
-        generate(CG_LDADDR, make_string(_token_str));
+        generate(OP_LDADDR, make_string(_token_str));
         scan();
     }
     else if (_token == LBRACK)
     {
         spill();
-        generate(CG_LDADDR, make_table());
+        generate(OP_LDADDR, make_table());
     }
     else if (_token == ADDROF)
     {
@@ -1584,12 +1657,12 @@ void factor(void)
         else if (y->flags & SYM_GLOBF)
         {
             spill();
-            generate(CG_LDADDR, y->value);
+            generate(OP_LDADDR, y->value);
         }
         else
         {
             spill();
-            generate(CG_LDLOCALREF, y->value);
+            generate(OP_LDLOCALREF, y->value);
         }
     }
     else if (_token == BINOP)
@@ -1599,7 +1672,7 @@ void factor(void)
             compiler_error("syntax error", _token_str);
         scan();
         factor();
-        generate(CG_NEG, 0);
+        generate(OP_NEG, 0);
     }
     else if (_token == UNOP)
     {
@@ -1660,7 +1733,7 @@ void conjn(void)
     while (CONJ == _token)
     {
         scan();
-        generate(CG_JMPFALSE, 0);
+        generate(OP_JMPFALSE, 0);
         clear();
         arithmetic();
         n++;
@@ -1668,7 +1741,7 @@ void conjn(void)
 
     while (n > 0)
     {
-        generate(CG_RESOLV, 0);
+        generate(OP_RESOLV, 0);
         n--;
     }
 }
@@ -1681,7 +1754,7 @@ void disjn(void)
     while (DISJ == _token)
     {
         scan();
-        generate(CG_JMPTRUE, 0);
+        generate(OP_JMPTRUE, 0);
         clear();
         conjn();
         n++;
@@ -1689,7 +1762,7 @@ void disjn(void)
 
     while (n > 0)
     {
-        generate(CG_RESOLV, 0);
+        generate(OP_RESOLV, 0);
         n--;
     }
 }
@@ -1706,22 +1779,22 @@ void expression(int clr)
     if (COND == _token)
     {
         scan();
-        generate(CG_JMPFALSE, 0);
+        generate(OP_JMPFALSE, 0);
         expression(1);
         expect(COLON, "':'");
         scan();
-        generate(CG_JUMPFWD, 0);
+        generate(OP_JUMPFWD, 0);
         swap();
-        generate(CG_RESOLV, 0);
+        generate(OP_RESOLV, 0);
         expression(1);
-        generate(CG_RESOLV, 0);
+        generate(OP_RESOLV, 0);
     }
 }
 
 void halt_statement(void)
 {
     scan();
-    generate(CG_HALT, const_value());
+    generate(OP_HALT, const_value());
 }
 
 void return_statement(void)
@@ -1734,9 +1807,9 @@ void return_statement(void)
     expression(1);
 
     if (_local_frame_ptr != 0)
-        generate(CG_DEALLOC, -_local_frame_ptr);
+        generate(OP_DEALLOC, -_local_frame_ptr);
 
-    generate(CG_EXIT, 0);
+    generate(OP_EXIT, 0);
 }
 
 void if_statement()
@@ -1744,22 +1817,22 @@ void if_statement()
     scan();
     expect_left_paren();
     expression(1);
-    generate(CG_JMPFALSE, 0);
+    generate(OP_JMPFALSE, 0);
     expect_right_paren();
 
-    block_statement();
+    block_statement(false);
 
     if (_token == KELSE)
     {
-        generate(CG_JUMPFWD, 0);
+        generate(OP_JUMPFWD, 0);
         swap();
-        generate(CG_RESOLV, 0);
+        generate(OP_RESOLV, 0);
 
         scan();
         statement();
     }
 
-    generate(CG_RESOLV, 0);
+    generate(OP_RESOLV, 0);
 }
 
 void while_statement(void)
@@ -1769,25 +1842,26 @@ void while_statement(void)
 
     scan();
     expect_left_paren();
-    generate(CG_MARK, 0);
+    generate(OP_MARK, 0);
 
     _loop0 = tos();
     
     expression(1);
 
     expect_right_paren();
-    generate(CG_JMPFALSE, 0);
+    generate(OP_JMPFALSE, 0);
     
-    statement();
+
+    block_statement(false);
     
     swap();
-    generate(CG_JUMPBACK, 0);
-    generate(CG_RESOLV, 0);
+    generate(OP_JUMPBACK, 0);
+    generate(OP_RESOLV, 0);
 
     while (_leaves_ptr > old_leaves_ptr)
     {
         push(_leaves[_leaves_ptr-1]);
-        generate(CG_RESOLV, 0);
+        generate(OP_RESOLV, 0);
         _leaves_ptr--;
     }
 
@@ -1816,38 +1890,38 @@ void for_statement(void)
     store(variable);
     expect(COMMA, "','");
     scan();
-    generate(CG_MARK, 0);
+    generate(OP_MARK, 0);
     
     int test = tos();
 
     load(variable);
     expression(0);
 
-    generate(CG_FOR, 0);
+    generate(OP_FOR, 0);
     expect_right_paren();
 
-    block_statement();
+    block_statement(false);
 
     while (_loops_ptr > old_loops_ptr)
     {
         push(_loops[_loops_ptr-1]);
-        generate(CG_RESOLV, 0);
+        generate(OP_RESOLV, 0);
         _loops_ptr--;
     }
 
     if (variable->flags & SYM_GLOBF)
-        generate(CG_INCGLOB, variable->value);
+        generate(OP_INCGLOB, variable->value);
     else
-        generate(CG_INCLOCL, variable->value);
+        generate(OP_INCLOCL, variable->value);
 
     swap();
-    generate(CG_JUMPBACK, 0);
-    generate(CG_RESOLV, 0);
+    generate(OP_JUMPBACK, 0);
+    generate(OP_RESOLV, 0);
 
     while (_leaves_ptr > old_leaves_ptr)
     {
         push(_leaves[_leaves_ptr-1]);
-        generate(CG_RESOLV, 0);
+        generate(OP_RESOLV, 0);
         _leaves_ptr--;
     }
 
@@ -1865,7 +1939,7 @@ void leave_statement(void)
     if (_leaves_ptr >= MAXLOOP)
         compiler_error("too many LEAVEs", NULL);
 
-    generate(CG_JUMPFWD, 0);
+    generate(OP_JUMPFWD, 0);
     _leaves[_leaves_ptr++] = pop();
 }
 
@@ -1879,13 +1953,13 @@ void loop_statement(void)
     if (_loop0 > 0)
     {
         push(_loop0);
-        generate(CG_JUMPBACK, 0);
+        generate(OP_JUMPBACK, 0);
     }
     else
     {
         if (_loops_ptr >= MAXLOOP)
             compiler_error("too many LOOPs", NULL);
-        generate(CG_JUMPFWD, 0);
+        generate(OP_JUMPFWD, 0);
         _loops[_loops_ptr++] = pop();
     }
 }
@@ -1906,7 +1980,7 @@ void assignment_or_call(void)
         scan();
         expression(0);
         if (NULL == sym)
-            generate(b ? CG_STINDB: CG_STINDR, 0);
+            generate(b ? OP_STINDB: OP_STINDR, 0);
         else if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST | SYM_VECTOR))
             compiler_error("bad location", sym->name);
         else
@@ -1918,7 +1992,7 @@ void assignment_or_call(void)
     }
 }
 
-void statement(void)
+bool statement(void)
 {
     switch (_token)
     {
@@ -1939,12 +2013,12 @@ void statement(void)
             break;
         case KRETURN:
             return_statement();
-            break;
+            return true;
         case KWHILE:
             while_statement();
             break;
         case BLOCK_START:
-            block_statement();
+            block_statement(false);
             break;
         case SYMBOL:
             assignment_or_call();
@@ -1953,9 +2027,11 @@ void statement(void)
             expect(0, "statement");
             break;
     }
+
+    return false;
 }
 
-void block_statement(void)
+bool block_statement(bool function_scope)
 {
     expect(BLOCK_START, "{");
     scan();
@@ -1966,17 +2042,25 @@ void block_statement(void)
     while (KVAR == _token || KCONST == _token || KSTRUCT == _token)
         declaration(0);
 
+    bool last_was_return = false;
     while (_token != BLOCK_END)
-        statement();
+        last_was_return = statement();
 
 
     scan();
 
-    if (old_local_frame_ptr - _local_frame_ptr != 0)
-        generate(CG_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
+    // Do not deallocate local vars if we are a function block, and the last
+    // statement was a return statement.
+    if (!last_was_return && !function_scope)
+    {
+        if (old_local_frame_ptr - _local_frame_ptr != 0)
+            generate(OP_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
+    }
 
     _symbol_table_ptr = old_symbol_table_ptr;
     _local_frame_ptr = old_local_frame_ptr;
+
+    return last_was_return;
 }
 
 void program(void)
@@ -2003,8 +2087,9 @@ void resolve_main(void)
     if (main == NULL)
         compiler_error("missing main entry point", NULL);
 
-    generate(CG_CALL, main->value + TEXT_VADDR);
-    generate(CG_HALT, 0);
+    _start_location = _text_buffer_ptr + TEXT_VADDR;
+    generate(OP_CALL, main->value + TEXT_VADDR);
+    generate(OP_HALT, 0);
 }
 
 /**
@@ -2017,25 +2102,29 @@ void init(void)
     _data_buffer_ptr = 0;
     _symbol_table_ptr = 0;
 
-    generate(CG_INIT, HEAP_END);
-    generate(CG_JUMPFWD, 0);
+    generate(OP_INIT, HEAP_END);
+    generate(OP_JUMPFWD, 0);
     
-    // Heap allocation ptr
-    int heap_ptr_var = _text_buffer_ptr;
-    emit_word(HEAP_START);
+    // Special variables used by the standard library
+    if (_options->no_stdlib == 0)
+    {
+        // Heap allocation ptr
+        add("__heap_ptr", SYM_GLOBF, _text_buffer_ptr + TEXT_VADDR - DATA_VADDR);
+        emit_word(HEAP_START);
 
-    // 32 byte buffer
-    int buffer_ptr_var = _text_buffer_ptr;
-    emit_allocate(32);
+        // 32 byte buffer
+        add("__buffer", SYM_GLOBF, _text_buffer_ptr + TEXT_VADDR - DATA_VADDR);
+        emit_allocate(32);
+    }
 
     // Add special math routines
     _mul32_routine_address = _text_buffer_ptr + TEXT_VADDR;
-    generate(CG_MUL32, 0);
+    emit_code(CG_MUL32, 0);
 
     _div32_routine_address = _text_buffer_ptr + TEXT_VADDR;
-    generate(CG_DIV32, 0);
+    emit_code(CG_DIV32, 0);
 
-    generate(CG_RESOLV, 0);
+    generate(OP_RESOLV, 0);
 
 
     find_operator("="); _equal_op = _token_op_id;
@@ -2052,12 +2141,11 @@ void init(void)
     builtin("memscan", 3, CG_FUNC_MEMSCAN);
     builtin("memcopy", 3, CG_FUNC_MEMCOPY);
 
+    add("mem", SYM_CONST | SYM_MEMORY, 0);     // special memory access, set to -DATA_VADDR to compensate for LDGLOBAL that adds DATA_VADDR
     add("HEAP_START", SYM_CONST, HEAP_START);
     add("HEAP_END", SYM_CONST, HEAP_END - INITIAL_STACK_SIZE);
-
-    // Special variables used by the standard library
-    add("__heap_ptr", SYM_GLOBF, heap_ptr_var + TEXT_VADDR - DATA_VADDR);
-    add("__buffer", SYM_GLOBF, buffer_ptr_var + TEXT_VADDR - DATA_VADDR);
+    add("BYTE", SYM_CONST, 1);
+    add("WORD", SYM_CONST, 4);
 }
 
 
@@ -2083,16 +2171,21 @@ int koda_compile(koda_compiler_options_t *options)
 
     init();
 
-    // Compile stdlib
-    read_stdlib_source();
-    program();
-    resolve();
+    if (_options->no_stdlib == 0)
+    {
+        // Compile stdlib
+        read_stdlib_source();
+        program();
+        clear_opcode_generation();
+        resolve();
+    }
 
     // Compile all input files
     for (int i = 0; i < options->input_files_count; ++i)
     {
         read_input_source(options->input_files[i]);
         program();
+        clear_opcode_generation();
         resolve();
     }
 

@@ -78,7 +78,6 @@
 
 	org $010000
 
-
 SYSCALL0:
 	move.l d0,-(sp)
 	move.l a6,-(sp)
@@ -302,9 +301,18 @@ CG_CLEAR:	; A: = 0
 
 CG_LDVAL: 	; w	P: = P − 1; S0: = A; A: = w
 	move.l #$FEDCBA98,d0
+CG_LDVAL_SHORT:
+	moveq	#$55,d0
+CG_LDVAL_STACK:
+	move.l #$FEDCBA98,-(sp)
+;CG_LDVAL_STACK_SHORT:
+;	moveq	#$55,-(sp)
+
 
 CG_LDADDR: 	; a	P: = P − 1; S0: = A; A: = a
 	move.l #$FEDCBA98,d0
+CG_LDADDR_SP:
+	move.l #$FEDCBA98,-(sp)
 
 CG_LDLREF: 	; w 	P: = P − 1; S0: = A; A: = F + w
 	move.l a6,d0
@@ -312,9 +320,14 @@ CG_LDLREF: 	; w 	P: = P − 1; S0: = A; A: = F + w
 
 CG_LDGLOB: 		; a	P: = P − 1; S0: = A; A: = [a]
 	move.l $FEDCBA98,d0
+CG_LDGLOB_SP:
+	move.l $FEDCBA98,-(sp)
 
-G_LDLOCL: 	; w	P: = P − 1; S0: = A; A: = [F + w]
+CG_LDLOCL: 	; w	P: = P − 1; S0: = A; A: = [F + w]
 	move.l $FED(a6),d0
+CG_LDLOCL_STACK:
+	move.l $FED(a6),-(sp)
+
 
 CG_STGLOB: 	; a	[a]: = A; A: = S0; P: = P + 1
 	move.l d0,$FEDCAB98
@@ -423,8 +436,8 @@ CG_LOGNOT:	;	if A = 0 then A: = −1 else A: = 0
 lognot_done:
 
 CG_ADD:		;	A := S0 + A; P := P + 1
-	move.l (sp)+,d1
-	add.l d1,d0
+	;move.l (sp)+,d1
+	add.l (sp)+,d0
 
 CG_SUB:		;	A: = S0 − A; P: = P + 1
 	move.l (sp)+,d1
@@ -447,12 +460,12 @@ CG_MOD:		;	A: = S0 mod A; P: = P + 1
 	move.l d1,d0
 
 CG_AND:		; A := S0 AND A; P := P + 1
-	move.l (sp)+,d1
-	and.l d1,d0
+	;move.l (sp)+,d1
+	and.l (sp)+,d0
 
 CG_OR:		; A := S0 OR A; P := P + 1
-	move.l (sp)+,d1
-	or.l d1,d0
+	;move.l (sp)+,d1
+	or.l (sp)+,d0
 
 CG_XOR:		; A: = S0 XOR A; P: = P + 1
 	move.l (sp)+,d1

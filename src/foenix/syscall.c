@@ -31,6 +31,12 @@ int sys_chan_ioctrl(int channel, int command, unsigned char * buffer, int size)
     return syscall(KERNEL_CHAN_IOCTRL, channel, command, buffer, size);
 }
 
+int sys_chan_flush(int channel)
+{
+    return syscall(KERNEL_CHAN_FLUSH, channel);
+}
+
+
 int sys_fsys_open(const char * path, int mode)
 {
     return syscall(KERNEL_OPEN, path, mode);

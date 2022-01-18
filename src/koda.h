@@ -7,7 +7,7 @@ enum {
     KODA_OUTPUT_TYPE_SREC   = 1,
 };
 
-typedef struct t3x_compiler_options_t {
+typedef struct koda_compiler_options_t {
 	char *input_files[32];
 	int input_files_count;
 
@@ -17,6 +17,7 @@ typedef struct t3x_compiler_options_t {
 	int generate_labels;
 	char *labels_filename;
 
+	int no_stdlib;
 	int print_usage_statistics;
 } koda_compiler_options_t;
 

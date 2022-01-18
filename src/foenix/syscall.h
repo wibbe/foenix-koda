@@ -8,6 +8,7 @@ enum {
 	KERNEL_CHAN_READ_B         	= 0x11,
 	KERNEL_CHAN_WRITE			= 0x13,
 	KERNEL_CHAN_WRITE_B			= 0x14,
+	KERNEL_CHAN_FLUSH			= 0x15,
 	KERNEL_CHAN_IOCTRL			= 0x18,
 	KERNEL_OPEN					= 0x30,
 	KERNEL_CLOSE				= 0x31,
@@ -27,7 +28,6 @@ enum {
 };
 
 
-
 extern int syscall(int function, ...);
 
 
@@ -40,6 +40,8 @@ int sys_chan_read_b(int channel);
 int sys_chan_read(int channel, unsigned char * buffer, int size);
 
 int sys_chan_ioctrl(int channel, int command, unsigned char * buffer, int size);
+
+int sys_chan_flush(int channel);
 
 int sys_fsys_open(const char * path, int mode);
 int sys_fsys_close(int fd);
