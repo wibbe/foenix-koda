@@ -13,6 +13,77 @@
 #include "koda.h"
 
 
+#define CG_INIT             "202F0004222F00082E7C,l2F002F01"
+#define CG_PUSH             "2F00"                  // P: = P − 1; S0: = A
+#define CG_LDVAL            "203C,l"                // P: = P − 1; S0: = A; A: = w
+#define CG_LDVAL_SHORT      "70,b"
+#define CG_LDVAL_SP         "2F3C,l"
+#define CG_LDADDR           "203C,a"                // P: = P − 1; S0: = A; A: = a
+#define CG_LDADDR_SP        "2F3C,a"
+#define CG_LDLOCALREF       "200ED0BC,l"            // P: = P − 1; S0: = A; A: = F + w
+#define CG_LDGLOBAL         "2039,a"                // P: = P − 1; S0: = A; A: = [a]
+#define CG_LDGLOBAL_SP      "2F39,a"
+#define CG_LDLOCAL          "202E,w"                // P: = P − 1; S0: = A; A: = [F + w]
+#define CG_LDLOCAL_SP       "2F2E,w"
+#define CG_CLEAR            "7000"                  // A: = 0
+#define CG_STGLOB           "23C0,a"                // [a]: = A; A: = S0; P: = P + 1
+#define CG_STLOCL           "2D40,w"                // [F + w]: = A; A: = S0; P: = P + 1
+#define CG_STINDR           "2A5F2A80"              // [S0]: = A; P: = P + 1
+#define CG_STINDB           "2A5F1A80"              // b[S0]: = A; P: = P + 1
+#define CG_ALLOC            "9FFC,l"                // P: = P − w
+#define CG_DEALLOC          "DFFC,l"                // P: = P + w
+#define CG_LOCLVEC          "2A4f2F0D"              // w: = P; P: = P − 1; S0: = w
+#define CG_GLOBVEC          "23CF,a"                // [a]: = P
+#define CG_HALT             "223C,l70004E4F"
+#define CG_INDEX            "221FE588D081"          // A: = 4 ⋅ A + S0; P: = P + 1
+#define CG_INDEX_CONSTANT   "E588D0BC,l"
+#define CG_DEREF            "2A402015"              // A: = [A]
+#define CG_INDXB            "221FD081"              // A: = A + S0; P: = P + 1
+#define CG_DREFB            "2A4070001015"
+#define CG_CALL             "4EB9,a"
+#define CG_JUMPFWD          "6000,>"
+#define CG_JUMPBACK         "6000,<"
+#define CG_JUMP_TARGET      ",r"
+#define CG_ENTER            "2F0E2C4F"
+#define CG_EXIT             "2C5F4E75"
+#define CG_NEG              "4480"
+#define CG_INV              "4680"
+#define CG_LOGNOT           "220070004A81660270FF"
+#define CG_ADD              "D09F"
+#define CG_ADD_CONSTANT     "D0BC,l"
+#define CG_SUB              "221FC1419081"
+#define CG_MUL              "221F4EB9,l"
+#define CG_DIV              "2200201F4EB9,l"
+#define CG_MOD              "2200201F4EB9,w2001"
+#define CG_AND              "C09F"
+#define CG_OR               "809F"
+#define CG_XOR              "221FB380"
+#define CG_SHL              "221FE1A92001"
+#define CG_SHR              "221FE0A92001"
+#define CG_EQ               "221F24007000B481660270FF"
+#define CG_NEQ              "221F24007000B481670270FF"
+#define CG_LT               "221F24007000B4816F0270FF"
+#define CG_LE               "221F24007000B4816D0270FF"
+#define CG_GT               "221F24007000B4816C0270FF"
+#define CG_GE               "221F24007000B4816E0270FF"
+#define CG_JMPFALSE         "4A806700,>"
+#define CG_JMPTRUE          "4A806600,>"
+#define CG_FOR              "221FB2806C00,>"
+#define CG_INCGLOB          "52B9,a"
+#define CG_INCLOCL          "52AE,w"
+#define CG_INC              "2A405295"
+
+#define CG_FUNC_SYSCALL0    "2F002F0E202F000C4E4F2C5F201F4E75"
+#define CG_FUNC_SYSCALL1    "2F002F0E222F000C202F00104E4F2C5F201F4E75"
+#define CG_FUNC_SYSCALL2    "2F002F0E242F000C222F0010202F00144E4F2C5F201F4E75"
+#define CG_FUNC_SYSCALL3    "2F002F0E262F000C242F0010222F0014202F00184E4F2C5F201F4E75"
+#define CG_FUNC_MEMSCAN     "222F0004242F0008206F000C22482448D5C1B5C9671276001619B483670260F22009908853804E7570FF4E75"
+#define CG_FUNC_MEMCOPY     "206F000C226F0008222F000410D951C9FFFC4E75"
+
+#define CG_MUL32            "2801B1844A806A0244804A816A024481B2BC0000FFFF630CC141B2BC0000FFFF620000203400C4C14840C0C148404A4066000010D0826B00000A4A846A0244804E75700060FA"
+#define CG_DIV32            "24012801B1844A806A0244804A816A024481761F22007000D281D1806708B0826B045281908251CBFFF0C1414A846A04448044814E75"
+
+
 enum {
     BPW                     = 4,
     PROGRAM_SIZE            = 0xF000,
@@ -105,12 +176,10 @@ enum {
     OP_INDXB,
     OP_DREFB,
     OP_CALL,
-    OP_MARK,
     OP_JUMPFWD,
     OP_JUMPBACK,
     OP_ENTER,
     OP_EXIT,
-    OP_RESOLV,
     OP_NEG,
     OP_INV,
     OP_LOGNOT,
@@ -178,12 +247,10 @@ char *_opcode_names[OP_COUNT] = {
     [OP_INDXB] = "OP_INDXB",
     [OP_DREFB] = "OP_DREFB",
     [OP_CALL] = "OP_CALL",
-    [OP_MARK] = "OP_MARK",
     [OP_JUMPFWD] = "OP_JUMPFWD",
     [OP_JUMPBACK] = "OP_JUMPBACK",
     [OP_ENTER] = "OP_ENTER",
     [OP_EXIT] = "OP_EXIT",
-    [OP_RESOLV] = "OP_RESOLV",
     [OP_NEG] = "OP_NEG",
     [OP_INV] = "OP_INV",
     [OP_LOGNOT] = "OP_LOGNOT",
@@ -220,6 +287,66 @@ char *_opcode_names[OP_COUNT] = {
     [OP_LDLOCAL_STACK] = "OP_LDLOCAL_STACK",
     [OP_ADD_CONSTANT] = "OP_ADD_CONSTANT",
     [OP_INDEX_CONSTANT] = "OP_INDEX_CONSTANT",
+};
+
+char *_opcode_to_machine_code[OP_COUNT] = {
+    [OP_INIT] = CG_INIT,
+    [OP_PUSH] = CG_PUSH,
+    [OP_LDVAL] = CG_LDVAL,
+    [OP_LDVAL_STACK] = CG_LDVAL_SP,
+    [OP_LDADDR] = CG_LDADDR,
+    [OP_LDADDR_STACK] = CG_LDADDR_SP,
+    [OP_LDLOCALREF] = CG_LDLOCALREF,
+    [OP_LDGLOBAL] = CG_LDGLOBAL,
+    [OP_LDGLOBAL_STACK] = CG_LDGLOBAL_SP,
+    [OP_LDLOCAL] = CG_LDLOCAL,
+    [OP_LDLOCAL_STACK] = CG_LDLOCAL_SP,
+    [OP_CLEAR] = CG_CLEAR,
+    [OP_STGLOB] = CG_STGLOB,
+    [OP_STLOCL] = CG_STLOCL,
+    [OP_STINDR] = CG_STINDR,
+    [OP_STINDB] = CG_STINDB,
+    [OP_ALLOC] = CG_ALLOC,
+    [OP_DEALLOC] = CG_DEALLOC,
+    [OP_LOCLVEC] = CG_LOCLVEC,
+    [OP_GLOBVEC] = CG_GLOBVEC,
+    [OP_HALT] = CG_HALT,
+    [OP_INDEX] = CG_INDEX,
+    [OP_DEREF] = CG_DEREF,
+    [OP_INDXB] = CG_INDXB,
+    [OP_DREFB] = CG_DREFB,
+    [OP_CALL] = CG_CALL,
+    [OP_JUMPFWD] = CG_JUMPFWD,
+    [OP_JUMPBACK] = CG_JUMPBACK,
+    [OP_JUMP_TARGET] = CG_JUMP_TARGET,
+    [OP_ENTER] = CG_ENTER,
+    [OP_EXIT] = CG_EXIT,
+    [OP_NEG] = CG_NEG,
+    [OP_INV] = CG_INV,
+    [OP_LOGNOT] = CG_LOGNOT,
+    [OP_ADD] = CG_ADD,
+    [OP_ADD_CONSTANT] = CG_ADD_CONSTANT,
+    [OP_SUB] = CG_SUB,
+    [OP_MUL] = CG_MUL,
+    [OP_DIV] = CG_DIV,
+    [OP_MOD] = CG_MOD,
+    [OP_AND] = CG_AND,
+    [OP_OR] = CG_OR,
+    [OP_XOR] = CG_XOR,
+    [OP_SHL] = CG_SHL,
+    [OP_SHR] = CG_SHR,
+    [OP_EQ] = CG_EQ,
+    [OP_NEQ] = CG_NEQ,
+    [OP_LT] = CG_LT,
+    [OP_LE] = CG_LE,
+    [OP_GT] = CG_GT,
+    [OP_GE] = CG_GE,
+    [OP_JMPFALSE] = CG_JMPFALSE,
+    [OP_JMPTRUE] = CG_JMPTRUE,
+    [OP_FOR] = CG_FOR,
+    [OP_INCGLOB] = CG_INCGLOB,
+    [OP_INCLOCL] = CG_INCLOCL,
+    [OP_INC] = CG_INC,    
 };
 
 
@@ -299,10 +426,10 @@ bool _parsing_function = false;
 code_t *_code_start = NULL;
 code_t *_current_code = NULL;
 
-int _loop0 = -1;
-int _leaves[MAXLOOP];
+code_t *_loop0 = NULL;
+code_t *_leaves[MAXLOOP];
 int _leaves_ptr = 0;
-int _loops[MAXLOOP];
+code_t *_loops[MAXLOOP];
 int _loops_ptr = 0;
 
 koda_compiler_options_t *_options = NULL;
@@ -310,7 +437,6 @@ koda_compiler_options_t *_options = NULL;
 
 int _div32_routine_address;
 int _mul32_routine_address;
-#include "output_m68k.c"
 
 
 void compiler_error(char *message, char *extra)
@@ -705,6 +831,24 @@ void optimize_remove_constant_addition(void)
     }
 }
 
+void optimize_fix_load_value_add_constant(void)
+{
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        if (!has_next(it))
+            continue;
+
+        if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
+        {
+            it->opcode = OP_LDGLOBAL;
+        }
+        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
+        {
+            it->opcode = OP_LDLOCAL;
+        }
+    }    
+}
+
 // Merge continous jumps
 void optimize_jumps(void)
 {
@@ -795,6 +939,7 @@ void optimize_code(void)
     optimize_load_value_add();
     optimize_merge_add_constant();
     optimize_remove_constant_addition();
+    optimize_fix_load_value_add_constant();
     optimize_merge_alloc();
     optimize_load_value_index();
 }
@@ -1057,56 +1202,53 @@ void allocate_global_variables(void)
     }
 }
 
-void emit_code(char *code, int value)
+void emit_code(code_t *code, char *machine_code)
 {
-    while (*code)
+    if (machine_code == NULL)
+        internal_error("missing machine code for opcode", _opcode_names[code->opcode]);
+
+    code->position = _text_buffer_ptr + TEXT_VADDR;
+
+    while (*machine_code)
     {
-        if (*code == ',')
+        if (*machine_code == ',')
         {
-            if (code[1] == 'b')
+            if (machine_code[1] == 'b')
             {
-                emit_byte(value);
+                emit_byte(code->value);
             }
-            else if (code[1] == 'w')
+            else if (machine_code[1] == 'l')
             {
-                emit_word(value);
+                emit_word(code->value);
             }
-            else if (code[1] == 'l')
+            else if (machine_code[1] == 'w')
             {
-                emit_short(value);
+                emit_short(code->value);
             }
-            else if (code[1] == 'a')
+            else if (machine_code[1] == 'a')
             {
-                emit_word(value);
-                tag('t');
+                if (code->symbol != NULL)
+                    emit_word(code->symbol->value);
+                else
+                    emit_word(code->value);
             }
-            else if (code[1] == 'm')
+            else if (machine_code[1] == '>')
             {
-                push(_text_buffer_ptr);
-            }
-            else if (code[1] == '>')
-            {
-                push(_text_buffer_ptr);
+                code->position = _text_buffer_ptr;
                 emit_short(0);
             }
-            else if (code[1] == '<')
+            else if (machine_code[1] == '<')
             {
-                emit_short(pop() - _text_buffer_ptr);
+                int addr = code->code->position;
+                emit_short(addr - _text_buffer_ptr);
             }
-            else if (code[1] == ']')
+            else if (machine_code[1] == 'r')
             {
-                push(_text_buffer_ptr);
-                emit_word(0);
-            }
-            else if (code[1] == 's')
-            {
-                int address = pop();
-                text_patch_word(address, value);
-            }
-            else if (code[1] == 'r')
-            {
-                int x = pop();
-                text_patch_short(x, _text_buffer_ptr - x);
+                if (code->code->opcode == OP_JUMPFWD || code->code->opcode == OP_JMPTRUE || code->code->opcode == OP_JMPFALSE)
+                {
+                    int addr = code->code->position;
+                    text_patch_short(addr, _text_buffer_ptr - addr);
+                }
             }
             else
             {
@@ -1115,15 +1257,81 @@ void emit_code(char *code, int value)
         }
         else
         {
-            emit_byte(hex(code[0]) * 16 + hex(code[1]));
+            emit_byte(16 * hex(machine_code[0]) + hex(machine_code[1]));
         }
-        code += 2;
+
+        machine_code += 2;
     }
 }
 
-void generate(int opcode, int value)
+void emit_load_value(code_t *code)
 {
-    generate_m68k(opcode, value);
+    if (code->value < SCHAR_MIN || code->value > SCHAR_MAX)
+        emit_code(code, CG_LDVAL);
+    else
+        emit_code(code, CG_LDVAL_SHORT);
+}
+
+void emit_addq(int value)
+{
+    emit_short(0x5080 | ((value & 0x07) << 9));
+}
+
+void emit_m68k_machine_code(void)
+{
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        it->position = _text_buffer_ptr;
+        switch (it->opcode)
+        {
+            case OP_WRITE_32:
+                it->symbol->value = _text_buffer_ptr + TEXT_VADDR;
+                emit_word(it->value);
+                break;
+
+            case OP_ALLOC_MEM:
+                it->symbol->value = _text_buffer_ptr + TEXT_VADDR;
+                emit_allocate(it->value);
+                break;
+
+            case OP_ENTER:
+                it->symbol->value = _text_buffer_ptr + TEXT_VADDR;
+                emit_code(it, CG_ENTER);
+                break;
+
+            case OP_ADD_CONSTANT:
+                if (it->value >= 0 && it->value < 8)
+                    emit_addq(it->value);
+                else
+                    emit_code(it, CG_ADD_CONSTANT);
+                break;
+
+            case OP_ASM:
+                if (it->symbol != NULL)
+                    it->symbol->value = _text_buffer_ptr + TEXT_VADDR;
+                emit_code(it, it->assembly);
+                break;
+
+            case OP_LDVAL:
+                emit_load_value(it);
+                break;
+
+            default:
+                emit_code(it, _opcode_to_machine_code[it->opcode]);
+                break;
+        }
+    }    
+}
+
+void generate_m68k_machine_code(void)
+{
+    // First pass, calculate the correct positions for all symbols and code instructions
+    _text_buffer_ptr = 0;
+    emit_m68k_machine_code();
+
+    // Next pass we output the correct final code
+    _text_buffer_ptr = 0;
+    emit_m68k_machine_code();
 }
 
 void builtin(char *name, int arity, char *code)
@@ -1185,23 +1393,118 @@ void save_labels(void)
     for (int i = 0; i < _symbol_table_ptr; ++i)
     {
         symbol_t *sym = &_symbol_table[i];
-        int value = sym->value;
 
+        if (!sym->used)
+            continue;
+
+        int value = sym->value;
+/*
         if (sym->flags & SYM_FUNCTION)
             value += TEXT_VADDR;
         else if (!(sym->flags & SYM_CONST))
             value += DATA_VADDR;
-
+*/
         fprintf(_output_target, "%08X\t%s\n", value, sym->name);
     }
 
-    fprintf(_output_target, "%08X\tmul32\n", _mul32_routine_address);
-    fprintf(_output_target, "%08X\tdiv32\n", _div32_routine_address);
-    fprintf(_output_target, "%08X\t_start\n", _start_location);
+    //fprintf(_output_target, "%08X\tmul32\n", _mul32_routine_address);
+    //fprintf(_output_target, "%08X\tdiv32\n", _div32_routine_address);
+    //fprintf(_output_target, "%08X\t_start\n", _start_location);
 
     fclose(_output_target);
     _output_target = NULL;
 #endif 
+}
+
+void write_pgz_header(void)
+{
+    write_output_byte('z');
+
+    // write initial start segment
+    write_output_word(TEXT_VADDR);      // start address
+    write_output_word(0);               // size
+}
+
+void write_pgz_segment(int load_address, unsigned char *start, int size)
+{
+    write_output_word(load_address);
+    write_output_word(size);
+
+#ifdef PLATFORM_WIN
+    fwrite(start, size, 1, _output_target);
+#else
+    sys_chan_write(_output_channel, start, size);
+#endif
+}
+
+void write_srec_byte(unsigned char data)
+{
+    unsigned char output[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+    write_output_byte(output[(data >> 4) & 0x0F]);
+    write_output_byte(output[data & 0x0F]);
+}
+
+void write_srec_word(int data)
+{
+    write_srec_byte((data >> 24) & 0xFF);
+    write_srec_byte((data >> 16) & 0xFF);
+    write_srec_byte((data >> 8) & 0xFF);
+    write_srec_byte(data & 0xFF);
+}
+
+void write_srec_header(void)
+{
+    const char *header = "S00B00007365673130303030C4\n";
+#ifdef PLATFORM_WIN
+    fprintf(_output_target, header);
+#else
+    sys_chan_write(_output_channel, (char *)header, strlen(header));
+#endif  
+}
+
+void write_srec_record(unsigned char *data, int address, int byte_count)
+{
+#ifdef PLATFORM_WIN
+    fprintf(_output_target, "S3");
+#else
+    sys_chan_write(_output_channel, "S3", 2);    
+#endif
+
+    int data_count = byte_count + 5;
+    int checksum = data_count & 0xFF;
+    checksum += (address >> 24) & 0xFF;
+    checksum += (address >> 16) & 0xFF;
+    checksum += (address >> 8) & 0xFF;
+    checksum += address & 0xFF;
+
+    write_srec_byte(data_count);
+    write_srec_word(address);
+
+    for (int i = 0; i < byte_count; ++i)
+    {
+        unsigned char byte = data[i];
+        write_srec_byte(byte);
+        checksum += byte;
+    }
+
+    write_srec_byte((checksum & 0xFF) ^ 0xFF);
+    write_output_byte('\n');
+}
+
+void write_srec_segment(int load_address, unsigned char *start, int size)
+{
+    int pos = 0;
+    int address = load_address;
+
+    while (pos < size)
+    {
+        int len = size - pos < 32 ? size - pos : 32;
+        write_srec_record(start, address, len);
+
+        pos += len;
+        start += len;
+        address += len;
+    }
 }
 
 void save_output(char *output_filename)
@@ -2498,31 +2801,39 @@ void if_statement()
 
 void while_statement(void)
 {
-    int old_loop0 = _loop0;
+    code_t *old_loop0 = _loop0;
     int old_leaves_ptr = _leaves_ptr;
 
     scan();
     expect_left_paren();
-    generate(OP_MARK, 0);
+    //generate(OP_MARK, 0);
 
-    _loop0 = tos();
+    code_t *while_test = code_opcode(OP_JUMP_TARGET);
+    _loop0 = while_test;
     
     expression(1);
 
     expect_right_paren();
-    generate(OP_JMPFALSE, 0);
+    //generate(OP_JMPFALSE, 0);
+    code_t *jump_false = code_opcode(OP_JMPFALSE);
     
 
     block_statement(false);
     
-    swap();
-    generate(OP_JUMPBACK, 0);
-    generate(OP_RESOLV, 0);
+    resolve_jump(code_opcode(OP_JUMPBACK), while_test);
+
+    //swap();
+    //generate(OP_JUMPBACK, 0);
+    //generate(OP_RESOLV, 0);
+
+    resolve_jump(jump_false, code_opcode(OP_JUMP_TARGET));
 
     while (_leaves_ptr > old_leaves_ptr)
     {
-        push(_leaves[_leaves_ptr-1]);
-        generate(OP_RESOLV, 0);
+        //push(_leaves[_leaves_ptr-1]);
+        //generate(OP_RESOLV, 0);
+        resolve_jump(_leaves[_leaves_ptr - 1], code_opcode(OP_JUMP_TARGET));
+
         _leaves_ptr--;
     }
 
@@ -2534,9 +2845,9 @@ void for_statement(void)
     scan();
     int old_loops_ptr = _loops_ptr;
     int old_leaves_ptr = _leaves_ptr;
-    int old_loop0 = _loop0;
+    code_t *old_loop0 = _loop0;
 
-    _loop0 = 0;
+    _loop0 = NULL;
 
     expect_left_paren();
     expect(SYMBOL, "symbol");
@@ -2554,36 +2865,37 @@ void for_statement(void)
     //generate(OP_MARK, 0);
     code_t *for_jump_target = code_opcode(OP_JUMP_TARGET);
     
-    int test = tos();
+    //int test = tos();
 
     load(variable);
     expression(0);
 
-    generate(OP_FOR, 0);
+    //generate(OP_FOR, 0);
     expect_right_paren();
 
     block_statement(false);
 
     while (_loops_ptr > old_loops_ptr)
     {
-        push(_loops[_loops_ptr-1]);
-        generate(OP_RESOLV, 0);
+        //push(_loops[_loops_ptr-1]);
+        //generate(OP_RESOLV, 0);
         _loops_ptr--;
     }
 
-    if (variable->flags & SYM_GLOBF)
-        generate(OP_INCGLOB, variable->value);
-    else
-        generate(OP_INCLOCL, variable->value);
+    //if (variable->flags & SYM_GLOBF)
+    //    generate(OP_INCGLOB, variable->value);
+    //else
+    //    generate(OP_INCLOCL, variable->value);
 
     swap();
-    generate(OP_JUMPBACK, 0);
-    generate(OP_RESOLV, 0);
+    //generate(OP_JUMPBACK, 0);
+    //generate(OP_RESOLV, 0);
 
     while (_leaves_ptr > old_leaves_ptr)
     {
-        push(_leaves[_leaves_ptr-1]);
-        generate(OP_RESOLV, 0);
+        //push(_leaves[_leaves_ptr-1]);
+        //generate(OP_RESOLV, 0);
+        resolve_jump(_leaves[_leaves_ptr - 1], code_opcode(OP_JUMP_TARGET));
         _leaves_ptr--;
     }
 
@@ -2593,7 +2905,7 @@ void for_statement(void)
 
 void leave_statement(void)
 {
-    if (_loop0 < 0)
+    if (_loop0 == NULL)
         compiler_error("LEAVE not in loop context", 0);
 
     scan();
@@ -2601,29 +2913,46 @@ void leave_statement(void)
     if (_leaves_ptr >= MAXLOOP)
         compiler_error("too many LEAVEs", NULL);
 
-    generate(OP_JUMPFWD, 0);
-    _leaves[_leaves_ptr++] = pop();
+    //generate(OP_JUMPFWD, 0);
+    _leaves[_leaves_ptr++] = code_opcode(OP_JUMPFWD);
 }
 
 void loop_statement(void)
 {
-    if (_loop0 < 0)
+    if (_loop0 == NULL)
         compiler_error("LOOP not in loop context", 0);
 
     scan();
-
+/*
     if (_loop0 > 0)
     {
-        push(_loop0);
-        generate(OP_JUMPBACK, 0);
+*/
+        //push(_loop0);
+        //generate(OP_JUMPBACK, 0);
+        // Here we need to create a new jump target right after the _loop0 code object,
+        // and then jump back to that new target.
+
+        code_t *jump_target = alloc_code();
+        jump_target->opcode = OP_JUMP_TARGET;
+
+        jump_target->next = _loop0->next;
+        jump_target->prev = _loop0;
+
+        _loop0->next = jump_target;
+        if (jump_target->next != NULL)
+            jump_target->next->prev = jump_target;
+
+        resolve_jump(code_opcode(OP_JUMPBACK), jump_target);
+/*
     }
     else
     {
         if (_loops_ptr >= MAXLOOP)
             compiler_error("too many LOOPs", NULL);
-        generate(OP_JUMPFWD, 0);
+        //generate(OP_JUMPFWD, 0);
         _loops[_loops_ptr++] = pop();
     }
+*/
 }
 
 void assignment_or_call(void)
@@ -2805,11 +3134,11 @@ void init(void)
     }
 
     // Add special math routines
-    _mul32_routine_address = _text_buffer_ptr + TEXT_VADDR;
-    emit_code(CG_MUL32, 0);
+    //_mul32_routine_address = _text_buffer_ptr + TEXT_VADDR;
+    //emit_code(CG_MUL32, 0);
 
-    _div32_routine_address = _text_buffer_ptr + TEXT_VADDR;
-    emit_code(CG_DIV32, 0);
+    //_div32_routine_address = _text_buffer_ptr + TEXT_VADDR;
+    //emit_code(CG_DIV32, 0);
 
     //generate(OP_RESOLV, 0);
     resolve_jump(jmp, code_opcode(OP_JUMP_TARGET));
@@ -2864,7 +3193,6 @@ int koda_compile(koda_compiler_options_t *options)
         // Compile stdlib
         read_stdlib_source();
         program();
-        clear_opcode_generation();
         resolve();
     }
 
@@ -2873,7 +3201,6 @@ int koda_compile(koda_compiler_options_t *options)
     {
         read_input_source(options->input_files[i]);
         program();
-        clear_opcode_generation();
         resolve();
     }
 
@@ -2888,16 +3215,18 @@ int koda_compile(koda_compiler_options_t *options)
 
     optimize_code();
     allocate_global_variables();
+    generate_m68k_machine_code();
 
     if (options->debug)
     {
         printf("\nCODE:\n");
         int optimized_instruction_count = 0;
+
         for (code_t *it = _code_start; it != NULL; it = it->next)
-        {
-            optimized_instruction_count++;
+            it->position = optimized_instruction_count++;
+
+        for (code_t *it = _code_start; it != NULL; it = it->next)
             print_code(it);
-        }
 
         printf("\nSYMBOLS:\n");
         for (int i = 0; i < _symbol_table_ptr; ++i)
