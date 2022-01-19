@@ -27,12 +27,12 @@ enum {
     SYMBOL_TABLE_SIZE       = 2048,
     STRING_TABLE_SIZE       = 8192,
 
-    SYM_GLOBF               = 1,
-    SYM_CONST               = 2,
-    SYM_VECTOR              = 4,
-    SYM_DECLARATION         = 8,
-    SYM_FUNCTION            = 16,
-    SYM_MEMORY              = 32,
+    SYM_GLOBF               = 0x01,
+    SYM_CONST               = 0x02,
+    SYM_VECTOR              = 0x04,
+    SYM_DECLARATION         = 0x08,
+    SYM_FUNCTION            = 0x10,
+    SYM_MEMORY              = 0x20,
 
     MAXTBL                  = 1024,
     MAXLOOP                 = 100,
@@ -248,6 +248,7 @@ struct symbol_t {
     char *name;
     int flags;
     int value;
+    bool used;
     code_t *code;
 };
 
@@ -505,7 +506,7 @@ void print_code(code_t *code)
 {
 #if PLATFORM_WIN
     char buffer[64];
-    int len = snprintf(buffer, 64, "%c %06X\t%s", code->used ? ' ' : '-', code->position, _opcode_names[code->opcode]);
+    int len = snprintf(buffer, 64, "%c %06X  %s", code->used ? ' ' : '-', code->position, _opcode_names[code->opcode]);
 
     while (len < 32)
         buffer[len++] = ' ';
@@ -549,6 +550,7 @@ void print_code(code_t *code)
         case OP_LDLOCAL_STACK:
         case OP_STGLOB:
         case OP_STLOCL:
+        case OP_GLOBVEC:
             if (code->symbol != NULL)
                 printf("%s%s\n", buffer, code->symbol->name);
             else
@@ -704,6 +706,16 @@ void optimize_jumps(void)
             // Update it pointer
             it = prev;
         }
+        else if (it->opcode == OP_JUMPFWD && it->next->opcode == OP_JUMP_TARGET)
+        {   
+            // Do we have a jump to the next instruction?
+            if (it->code == it->next)
+            {
+                it = it->prev;
+                remove_next(it);
+                remove_next(it);
+            }
+        }
     }
 }
 
@@ -772,16 +784,16 @@ void optimize_remove_dead_code(void)
                     pc = pc->next;
                 break;
 
+            case OP_STGLOB:
+            case OP_GLOBVEC:
             case OP_LDGLOBAL:
             case OP_LDGLOBAL_STACK:
-                if (pc->symbol != NULL && pc->symbol->code != NULL)
-                    pc->symbol->code->used = true;
-                pc = pc->next;
-                break;
-
-            case OP_STGLOB:
-                if (pc->symbol != NULL && pc->symbol->code != NULL)
-                    pc->symbol->code->used = true;
+                if (pc->symbol != NULL)
+                {   
+                    pc->symbol->used = true;
+                    if (pc->symbol->code != NULL)
+                        pc->symbol->code->used = true;
+                }
                 pc = pc->next;
                 break;
 
@@ -789,6 +801,8 @@ void optimize_remove_dead_code(void)
                 {
                     if (pc->symbol->code == NULL)
                         internal_error("No code associated with symbol", pc->symbol->name);
+
+                    pc->symbol->used = true;
 
                     if (pc->symbol->code->opcode == OP_ASM)
                     {
@@ -825,6 +839,9 @@ void optimize_code(void)
 {
     // TODO: We should mark unused symbols and global variables. That will also lead to splitting the data segment into two.
     //       One for global variables and one for static data such as strings and tables.
+    //       We might not need to break the data segment into to. All global variables can be allocated right after the string
+    //       and table data.
+
     optimize_remove_dead_code();
     optimize_jumps();
     optimize_load_push();
@@ -930,8 +947,9 @@ symbol_t *add(char *symbol_name, int flags, int value)
     _symbol_table[_symbol_table_ptr].name = intern_string(symbol_name);
     _symbol_table[_symbol_table_ptr].flags = flags;
     _symbol_table[_symbol_table_ptr].value = value;
-    _symbol_table_ptr++;
-    return &_symbol_table[_symbol_table_ptr - 1];
+    _symbol_table[_symbol_table_ptr].used = false;
+    
+    return &_symbol_table[_symbol_table_ptr++];
 }
 
 
@@ -1072,6 +1090,23 @@ void resolve(void)
             data_patch(_relocation_table[i].addr, address);
         }
     }   
+}
+
+void allocate_global_variables(void)
+{
+    for (int i = 0; i < _symbol_table_ptr; ++i)
+    {
+        symbol_t *sym = &_symbol_table[i];
+        if (!sym->used)
+            continue;
+
+        // Only allocate data space for global variables
+        if ((sym->flags == SYM_GLOBF) || (sym->flags == (SYM_GLOBF | SYM_VECTOR)))
+        {
+            sym->value = _data_buffer_ptr + DATA_VADDR;
+            data_word(0);
+        }
+    }
 }
 
 void emit_code(char *code, int value)
@@ -1799,9 +1834,11 @@ void var_declaration(int glob)
                 //generate(OP_ALLOC, size * BPW);
                 //generate(OP_GLOBVEC, _data_buffer_ptr);
                 code_opcode(OP_ALLOC, size * BPW);
-                code_opcode(OP_GLOBVEC, _data_buffer_ptr);
+                code_store_symbol(OP_GLOBVEC, var);
             }
-            data_word(0);
+            
+            // We will allocate space for the variables at a later state in the compilation
+            //data_word(0);
         }
         else
         {
@@ -1919,9 +1956,6 @@ bool statement(void);
 
 void function_declaration(void)
 {
-    // TODO: We should collect all function arguments and variables and allocate space
-    //       on the stack in one go
-
     int local_addr = 2 * BPW;
     int number_arguments = 0;
 
@@ -1935,6 +1969,7 @@ void function_declaration(void)
     expect_left_paren();
 
     int old_symbol_table_ptr = _symbol_table_ptr;
+    int old_string_table_ptr = _string_table_ptr;
     int local_base = _symbol_table_ptr;
 
     while (SYMBOL == _token)
@@ -1988,6 +2023,7 @@ void function_declaration(void)
     code_jump_target(jump);
 
     _symbol_table_ptr = old_symbol_table_ptr;
+    _string_table_ptr = old_string_table_ptr;
     _local_frame_ptr = 0;
 }
 
@@ -2884,35 +2920,46 @@ int koda_compile(koda_compiler_options_t *options)
     resolve_main();
 
     int start_instruction_count = 0;
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-        it->position = start_instruction_count++;
-
-    printf("\n\nORIGINAL CODE:\n");
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-        print_code(it);
+    if (options->debug)
+    {
+        for (code_t *it = _code_start; it != NULL; it = it->next)
+            it->position = start_instruction_count++;
+    }
 
     optimize_code();
+    allocate_global_variables();
 
-    printf("\n\nOPTIMIZED CODE:\n");
-    int optimized_instruction_count = 0;
-    for (code_t *it = _code_start; it != NULL; it = it->next)
+    if (options->debug)
     {
-        optimized_instruction_count++;
-        print_code(it);
+        printf("\nCODE:\n");
+        int optimized_instruction_count = 0;
+        for (code_t *it = _code_start; it != NULL; it = it->next)
+        {
+            optimized_instruction_count++;
+            print_code(it);
+        }
+
+        printf("\nSYMBOLS:\n");
+        for (int i = 0; i < _symbol_table_ptr; ++i)
+        {
+            symbol_t *sym = &_symbol_table[i];
+            if (sym->used)
+            {
+                printf("  %06X  %s (%02X)\n", sym->value, sym->name, sym->flags);
+            }
+        }
+
+#if PLATFORM_WIN
+        printf("\nSTATISTICS:\n");
+        printf("          Code usage: %d / %dkb\n", _text_buffer_ptr / 1024, TEXT_SIZE / 1024);
+        printf("          Data usage: %d / %dkb\n", _data_buffer_ptr / 1024, DATA_SIZE / 1024);
+        printf("  Symbol table usage: %d / %d\n", _symbol_table_ptr, SYMBOL_TABLE_SIZE);
+        printf("  String table usage: %d / %d\n", _string_table_ptr, STRING_TABLE_SIZE);
+        printf("       Optimizations: %d -> %d\n", start_instruction_count, optimized_instruction_count);
+#endif        
     }
 
     save_output(options->output_filename);
-
-    if (options->print_usage_statistics)
-    {
-#if PLATFORM_WIN
-        printf("        Code usage: %d / %dkb\n", _text_buffer_ptr / 1024, TEXT_SIZE / 1024);
-        printf("        Data usage: %d / %dkb\n", _data_buffer_ptr / 1024, DATA_SIZE / 1024);
-        printf("Symbol table usage: %d / %d\n", _symbol_table_ptr, SYMBOL_TABLE_SIZE);
-        printf("String table usage: %d / %d\n", _string_table_ptr, STRING_TABLE_SIZE);
-        printf("     Optimizations: %d -> %d\n", start_instruction_count, optimized_instruction_count);
-#endif        
-    }
 
     _options = NULL;
 

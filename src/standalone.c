@@ -41,9 +41,9 @@ int main(int argc, char *argv[])
             continue;
         }       
 
-        if (strcmp(argv[arg], "--usage") == 0 || strcmp(argv[arg], "-u") == 0)
+        if (strcmp(argv[arg], "--debug") == 0 || strcmp(argv[arg], "-d") == 0)
         {
-            options.print_usage_statistics = 1;
+            options.debug = 1;
             arg++;
             continue;
         }
