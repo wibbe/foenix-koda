@@ -150,6 +150,10 @@ char *_instructions[OP_COUNT] = {
 int _last_opcode = -1;
 int _last_value = 0;
 
+int _opcode_queue[2];
+int _value_queue[2];
+int _queue_len = 0;
+
 
 void emit_byte(int value);
 void emit_short(int value);
@@ -282,7 +286,19 @@ void emit_opcode(int opcode, int value)
     }    
 }
 
-void generate(int opcode, int value)
+void clear_queue(void)
+{
+
+}
+
+void push_opcode(int opcode, int value)
+{
+
+}
+
+
+
+void generate_m68k(int opcode, int value)
 {
     // Certain opcodes we must handle right away
     if (opcode == OP_JUMPFWD || opcode == OP_JUMPBACK || opcode == OP_JMPTRUE ||
