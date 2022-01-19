@@ -43,6 +43,7 @@
 #define CG_GLOBVEC          "23CF,a"                // [a]: = P
 #define CG_HALT             "223C,w70004E4F"
 #define CG_INDEX            "221FE588D081"          // A: = 4 ⋅ A + S0; P: = P + 1
+#define CG_INDEX_CONSTANT   "E588D0BC,w"
 #define CG_DEREF            "2A402015"              // A: = [A]
 #define CG_INDXB            "221FD081"              // A: = A + S0; P: = P + 1
 #define CG_DREFB            "2A4070001015"

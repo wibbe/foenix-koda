@@ -378,6 +378,10 @@ CG_INDEX:	; A := 4 * A + S0; P := P + 1
 	lsl.l #2,d0
 	add.l d1,d0
 
+CG_INDEX_CONSTANT:
+	lsl.l #2,d0
+	add.l #$FEDCBA98,d0
+
 CG_DEREF:	; A := [A]
 	move.l d0,a5
 	move.l (a5),d0
