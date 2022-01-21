@@ -101,6 +101,10 @@ func print(format, args) {
 				print_str(to_str(args[j]))
 				j = j + 1
 			}
+			if (ch == 's') {
+				print_str(args[j])
+				j = j + 1
+			}
 			if (ch == 'c') {
 				syscall2(SYS_CHAN_WRITE_B, 0, args[j])
 				j = j + 1
