@@ -36,7 +36,7 @@
 #define CG_GLOBVEC          "23CF,a"                // [a]: = P
 #define CG_HALT             "223C,l70004E4F"
 #define CG_INDEX            "221FE588D081"          // A: = 4 ⋅ A + S0; P: = P + 1
-#define CG_INDEX_CONSTANT   "E588D0BC,l"
+#define CG_INDEX_CONSTANT   "D0BC,l"
 #define CG_DEREF            "2A402015"              // A: = [A]
 #define CG_INDXB            "221FD081"              // A: = A + S0; P: = P + 1
 #define CG_DREFB            "2A4070001015"
@@ -52,9 +52,9 @@
 #define CG_ADD              "D09F"
 #define CG_ADD_CONSTANT     "D0BC,l"
 #define CG_SUB              "221FC1419081"
-#define CG_MUL              "221F4EB9,l"
-#define CG_DIV              "2200201F4EB9,l"
-#define CG_MOD              "2200201F4EB9,w2001"
+#define CG_MUL              "221F4EB9,a"
+#define CG_DIV              "2200201F4EB9,a"
+#define CG_MOD              "2200201F4EB9,a2001"
 #define CG_AND              "C09F"
 #define CG_OR               "809F"
 #define CG_XOR              "221FB380"
@@ -308,6 +308,7 @@ char *_opcode_to_machine_code[OP_COUNT] = {
     [OP_GLOBVEC] = CG_GLOBVEC,
     [OP_HALT] = CG_HALT,
     [OP_INDEX] = CG_INDEX,
+    [OP_INDEX_CONSTANT] = CG_INDEX_CONSTANT,
     [OP_DEREF] = CG_DEREF,
     [OP_INDXB] = CG_INDXB,
     [OP_DREFB] = CG_DREFB,
@@ -383,9 +384,6 @@ typedef struct relocation_t {
 
 
 
-int _stack[STACK_SIZE];
-int _stack_pointer = 0;
-
 char *_program_source_file;
 int _current_line = 1;
 bool _has_main_body = false;
@@ -420,6 +418,9 @@ bool _parsing_function = false;
 
 code_t *_code_start = NULL;
 code_t *_current_code = NULL;
+
+code_t *_mul32_code = NULL;
+code_t *_div32_code = NULL;
 
 code_t *_loop0 = NULL;
 code_t *_leaves[MAXLOOP];
@@ -651,6 +652,14 @@ void optimize_remove_dead_code(void)
     for (code_t *it = _code_start; it != NULL; it = it->next)
         it->used = false;
 
+    // Special pass to handle mul32 and div32 asm code
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        if (it->opcode == OP_MUL)
+            _mul32_code->used = true;
+        else if (it->opcode == OP_DIV || it->opcode == OP_MOD)
+            _div32_code->used = true;
+    }
 
     code_t *call_stack[64];
     int call_stack_ptr = 0;
@@ -832,24 +841,6 @@ void optimize_remove_constant_addition(void)
     }
 }
 
-void optimize_fix_load_value_add_constant(void)
-{
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (!has_next(it))
-            continue;
-
-        if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
-        {
-            it->opcode = OP_LDGLOBAL;
-        }
-        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
-        {
-            it->opcode = OP_LDLOCAL;
-        }
-    }    
-}
-
 // Merge continous jumps
 void optimize_jumps(void)
 {
@@ -927,24 +918,85 @@ void optimize_load_value_index(void)
         if (it->opcode == OP_LDVAL && it->next->opcode == OP_INDEX)
         {
             it->opcode = OP_INDEX_CONSTANT;
+            // Update index value so it's correct
+            it->value = it->value * 4;
             remove_next(it);
         }
     }
 }
 
+// Remove OP_INDEX_CONSTANT 0 instructions, they do nothing for us
+void optimize_index_constant(void)
+{
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        if (it->opcode == OP_INDEX_CONSTANT && it->value == 0)
+        {
+            it = it->prev;
+            remove_next(it);
+
+            if (it->opcode == OP_LDGLOBAL_STACK || it->opcode == OP_LDLOCAL_STACK)
+            {
+                if (has_next(it) && it->next->opcode == OP_PUSH)
+                    remove_next(it);
+            }
+        }
+    }
+}
+
+void optimize_fix_load_value_xxx_constant(void)
+{
+    // We have been to agressive in transforming OP_LDGLOBL/OP_LDLOCL + OP_PUSH to OP_LDxxx_STACK instructions, so we fix that here.
+
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        if (!has_next(it))
+            continue;
+
+        if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
+        {
+            it->opcode = OP_LDGLOBAL;
+        }
+        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
+        {
+            it->opcode = OP_LDLOCAL;
+        }
+        else if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_INDEX_CONSTANT)
+        {
+            it->opcode = OP_LDGLOBAL;
+        }
+        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_INDEX_CONSTANT)
+        {
+            it->opcode = OP_LDLOCAL;
+        }
+         else if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_DEREF)
+        {
+            it->opcode = OP_LDGLOBAL;
+        }
+        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_DEREF)
+        {
+            it->opcode = OP_LDLOCAL;
+        }
+    }    
+}
+
 void optimize_code(void)
 {
     // TODO: Add optimization for OP_STLOCL + OP_LDLOCL combinations
+    //       Add new opcode for OP_LDVAL + OP_STLOCL pair
 
+    // The order of these optimization passes are really important, we can not move them around without
+    // changing the generated machine code.
     optimize_remove_dead_code();
     optimize_jumps();
     optimize_load_push();
     optimize_load_value_add();
     optimize_merge_add_constant();
     optimize_remove_constant_addition();
-    optimize_fix_load_value_add_constant();
-    optimize_merge_alloc();
     optimize_load_value_index();
+    optimize_index_constant();
+    optimize_merge_alloc();
+    optimize_fix_load_value_xxx_constant();
 }
 
 void mark_used_symbols(void)
@@ -968,40 +1020,23 @@ void mark_used_symbols(void)
                     internal_error("No code associated with symbol", it->symbol->name);
                 it->symbol->used = true;
                 break;
+
+            case OP_MUL:
+                _mul32_code->symbol->used = true;
+                it->symbol = _mul32_code->symbol;
+                break;
+
+            case OP_DIV:
+            case OP_MOD:
+                _div32_code->symbol->used = true;
+                it->symbol = _div32_code->symbol;
+                break;
         }
     }
 
 
 }
 
-void push(int x)
-{
-    if (_stack_pointer >= STACK_SIZE)
-        compiler_error("too many nesting levels", NULL);
-    _stack[_stack_pointer++] = x;
-}
-
-int tos(void)
-{
-    return _stack[_stack_pointer - 1];
-}
-
-int pop(void)
-{
-    if (_stack_pointer < 1)
-        internal_error("stack underflow", NULL);
-    return _stack[--_stack_pointer];
-}
-
-void swap(void)
-{
-    if (_stack_pointer < 2)
-        internal_error("stack underflow", NULL);
-
-    int tmp = _stack[_stack_pointer - 1];
-    _stack[_stack_pointer - 1] = _stack[_stack_pointer - 2];
-    _stack[_stack_pointer - 2] = tmp;
-}
 
 
 /**
@@ -1995,8 +2030,11 @@ void scan(void)
     _token = scan_next_token();
 }
 
-/*
+
+/**
+ *
  * Parser
+ *
  */
 
 
@@ -2048,7 +2086,7 @@ int const_factor(void)
         return sym->value;
     }
     compiler_error("constant value expected", _token_str);
-    return 0; /*LINT*/
+    return 0;
 }
 
 int const_value(void)
@@ -2112,8 +2150,6 @@ void var_declaration(int glob)
         {
             if (var->flags & SYM_VECTOR)
             {
-                //generate(OP_ALLOC, size * BPW);
-                //generate(OP_GLOBVEC, _data_buffer_ptr);
                 code_opcode_value(OP_ALLOC, size * BPW);
                 code_symbol(OP_GLOBVEC, var);
             }
@@ -2123,13 +2159,11 @@ void var_declaration(int glob)
         }
         else
         {
-            //generate(OP_ALLOC, size * BPW);
             code_opcode_value(OP_ALLOC, size * BPW);
             
             _local_frame_ptr -= size * BPW;
             if (var->flags & SYM_VECTOR)
             {
-                //generate(OP_LOCLVEC, 0);
                 code_opcode_value(OP_LOCLVEC, 0);
                 _local_frame_ptr -= BPW;
             }
@@ -2240,7 +2274,6 @@ void function_declaration(void)
     int local_addr = 2 * BPW;
     int number_arguments = 0;
 
-    //generate(OP_JUMPFWD, 0);
     code_t *jump = code_opcode(OP_JUMPFWD);
 
     scan();
@@ -2283,9 +2316,6 @@ void function_declaration(void)
     expect_right_paren();
 
     func_sym->flags |= number_arguments << 8;
-
-    //generate(OP_ENTER, 0);
-    //code_symbol_func(func_sym, OP_ENTER, 0);
     func_sym->code = code_symbol(OP_ENTER, func_sym);
 
     _parsing_function = true;
@@ -2293,12 +2323,9 @@ void function_declaration(void)
     block_statement();
 
     _parsing_function = false;
-    //generate(OP_CLEAR, 0);
-    //generate(OP_EXIT, 0);
     code_opcode_value(OP_CLEAR, 0);
     code_opcode_value(OP_EXIT, 0);
     
-    //generate(OP_RESOLV, 0);
     resolve_jump(jump, code_opcode(OP_JUMP_TARGET));
 
     _symbol_table_ptr = old_symbol_table_ptr;
@@ -2360,19 +2387,16 @@ void function_call(symbol_t *fn)
 
     if (fn->flags & SYM_DECLARATION)
     {
-        //generate(OP_CALL, TEXT_VADDR + fn->value);
         code_symbol(OP_CALL, fn);
         fn->value = _text_buffer_ptr - BPW;
     }
     else
     {
-        //generate(OP_CALL, TEXT_VADDR + fn->value);
         code_symbol(OP_CALL, fn);
     }
 
     if (argument_count != 0)
     {
-        //generate(OP_DEALLOC, argument_count * BPW);
         code_opcode_value(OP_DEALLOC, argument_count * BPW);
     }
 
@@ -2397,7 +2421,8 @@ int make_table(void)
 {
     int n, i;
     int loc;
-    int tbl[MAXTBL], af[MAXTBL];
+    int table_value[MAXTBL];
+    code_t *table_code[MAXTBL] = {0};
     int dynamic = 0;
 
     scan();
@@ -2417,32 +2442,30 @@ int make_table(void)
         else if (dynamic)
         {
             expression(1);
-            //generate(OP_STGLOB, 0);
-            code_opcode_value(OP_STGLOB, 0);
+            table_value[n] = 0;
+            table_code[n++] = code_opcode_value(OP_STGLOB, 0);
             
-            tbl[n] = 0;
-            af[n++] = _text_buffer_ptr - BPW;
             if (RPAREN == _token)
             {
                 scan();
                 dynamic = 0;
             }
         }
-        else if (INTEGER == _token || SYMBOL == _token)
+        else if (_token == INTEGER || _token == SYMBOL)
         {
-            tbl[n] = const_value();
-            af[n++] = 0;
+            table_value[n++] = const_value();
+            //table_code[n++] = 0;
         }
-        else if (STRING == _token)
+        else if (_token == STRING)
         {
-            tbl[n] = make_string(_token_str);
-            af[n++] = 1;
+            table_value[n++] = make_string(_token_str) + DATA_VADDR;
+            //table_code[n++] = 1;
             scan();
         }
-        else if (LBRACK == _token)
+        else if (_token == LBRACK)
         {
-            tbl[n] = make_table();
-            af[n++] = 1;
+            table_value[n++] = make_table() + DATA_VADDR;
+            //table_code[n++] = 1;
         }
         else
         {
@@ -2461,16 +2484,18 @@ int make_table(void)
 
     for (i = 0; i < n; i++)
     {
-        data_word(tbl[i]);
+        data_word(table_value[i]);
 
-        if (1 == af[i])
+        if (table_code[i] != NULL)
         {
-            tag('d');
+            table_code[i]->value = _data_buffer_ptr - 4 + DATA_VADDR;
+            //tag('d');
         }
-        else if (af[i] > 1)
-        {
-            text_patch_word(af[i], _data_buffer_ptr-4);
-        }
+//        else if (table_code[i] > 1)
+//        {
+//            //text_patch_word(table_code[i], _data_buffer_ptr-4);
+//
+//        }
     }
 
     return loc;
@@ -2479,20 +2504,16 @@ int make_table(void)
 void load(symbol_t *sym)
 {
     if (sym->flags & SYM_GLOBF)
-        //generate(OP_LDGLOBAL, sym->value);
         code_symbol(OP_LDGLOBAL, sym);
     else
-        //generate(OP_LDLOCAL, sym->value);
         code_opcode_value(OP_LDLOCAL, sym->value);
 }
 
 void store(symbol_t *sym)
 {
     if (sym->flags & SYM_GLOBF)
-        //generate(OP_STGLOB, sym->value);
         code_symbol(OP_STGLOB, sym);
     else
-        //generate(OP_STLOCL, sym->value);
         code_opcode_value(OP_STLOCL, sym->value);
 }
 
@@ -2509,7 +2530,6 @@ symbol_t *address(int level, int *byte_ptr)
             compiler_error("invalid address", sym->name);
 
         spill();
-        //generate(OP_LDVAL, sym->value);
         code_opcode_value(OP_LDVAL, sym->value);
         
     }
@@ -2540,16 +2560,13 @@ symbol_t *address(int level, int *byte_ptr)
 
         // Handle the special mem variable
         if (sym && sym->flags & SYM_MEMORY)
-            //generate(OP_INDXB, 0);
             code_opcode_value(OP_INDXB, 0);
         else
-            //generate(OP_INDEX, 0);
             code_opcode_value(OP_INDEX, 0);
 
         sym = NULL;
 
         if (_token == LBRACK || _token == BYTEOP || level == 0)
-            //generate(OP_DEREF, 0);
             code_opcode_value(OP_DEREF, 0);
     }
 
@@ -2559,11 +2576,9 @@ symbol_t *address(int level, int *byte_ptr)
         scan();
         factor();
         sym = NULL;
-        //generate(OP_INDXB, 0);
         code_opcode_value(OP_INDXB, 0);
 
         if (level == 0)
-            //generate(OP_DREFB, 0);
             code_opcode_value(OP_DREFB, 0);
     }
     return sym;
@@ -2578,7 +2593,6 @@ void factor(void)
     if (_token == INTEGER)
     {
         spill();
-        //generate(OP_LDVAL, _token_value);
         code_opcode_value(OP_LDVAL, _token_value);
         scan();
     }
@@ -2592,14 +2606,12 @@ void factor(void)
     else if (_token == STRING)
     {
         spill();
-        //generate(OP_LDADDR, make_string(_token_str));
         code_opcode_value(OP_LDADDR, make_string(_token_str) + DATA_VADDR);
         scan();
     }
     else if (_token == LBRACK)
     {
         spill();
-        //generate(OP_LDADDR, make_table());
         code_opcode_value(OP_LDADDR, make_table() + DATA_VADDR);
     }
     else if (_token == ADDROF)
@@ -2613,13 +2625,11 @@ void factor(void)
         else if (y->flags & SYM_GLOBF)
         {
             spill();
-            //generate(OP_LDADDR, y->value);
             code_symbol(OP_LDADDR, y);
         }
         else
         {
             spill();
-            //generate(OP_LDLOCALREF, y->value);
             code_opcode_value(OP_LDLOCALREF, y->value);
         }
     }
@@ -2630,7 +2640,6 @@ void factor(void)
             compiler_error("syntax error", _token_str);
         scan();
         factor();
-        //generate(OP_NEG, 0);
         code_opcode(OP_NEG);
     }
     else if (_token == UNOP)
@@ -2638,7 +2647,6 @@ void factor(void)
         op = _token_op_id;
         scan();
         factor();
-        //generate(_operators[op].code, 0);
         code_opcode(_operators[op].code);
     }
     else if (_token == LPAREN)
@@ -2698,7 +2706,6 @@ void conjn(void)
     while (CONJ == _token)
     {
         scan();
-        //generate(OP_JMPFALSE, 0);
         jump_stack[n] = code_opcode(OP_JMPFALSE);
         clear();
         arithmetic();
@@ -2707,7 +2714,6 @@ void conjn(void)
 
     while (n > 0)
     {
-        //generate(OP_RESOLV, 0);
         resolve_jump(jump_stack[n - 1], code_opcode(OP_JUMP_TARGET));
         n--;
     }
@@ -2723,7 +2729,6 @@ void disjn(void)
     while (DISJ == _token)
     {
         scan();
-        //generate(OP_JMPTRUE, 0);
         jump_stack[n] = code_opcode(OP_JMPTRUE);
         clear();
         conjn();
@@ -2732,7 +2737,6 @@ void disjn(void)
 
     while (n > 0)
     {
-        //generate(OP_RESOLV, 0);
         resolve_jump(jump_stack[n - 1], code_opcode(OP_JUMP_TARGET));
         n--;
     }
@@ -2750,27 +2754,21 @@ void expression(int clr)
     if (_token == COND)
     {
         scan();
-        //generate(OP_JMPFALSE, 0);
         code_t *false_jump = code_opcode(OP_JMPFALSE);
         expression(1);
         expect(COLON, "':'");
         scan();
-        //generate(OP_JUMPFWD, 0);
         code_t *fwd_jump = code_opcode(OP_JUMPFWD);
-        //swap();
-        //generate(OP_RESOLV, 0);
 
         resolve_jump(false_jump, code_opcode(OP_JUMP_TARGET));
         expression(1);
         resolve_jump(fwd_jump, code_opcode(OP_JUMP_TARGET));
-        //generate(OP_RESOLV, 0);
     }
 }
 
 void halt_statement(void)
 {
     scan();
-    //generate(OP_HALT, const_value());
     code_opcode_value(OP_HALT, const_value());
 }
 
@@ -2785,11 +2783,9 @@ void return_statement(void)
 
     if (_local_frame_ptr != 0)
     {
-        //generate(OP_DEALLOC, -_local_frame_ptr);
         code_opcode_value(OP_DEALLOC, -_local_frame_ptr);
     }
 
-    //generate(OP_EXIT, 0);
     code_opcode_value(OP_EXIT, 0);
 }
 
@@ -2799,7 +2795,6 @@ void if_statement()
     expect_left_paren();
     expression(1);
     
-    //generate(OP_JMPFALSE, 0);
     code_t *jump = code_opcode(OP_JMPFALSE);
     
     expect_right_paren();
@@ -2808,21 +2803,14 @@ void if_statement()
 
     if (_token == KELSE)
     {
-        
-        //generate(OP_JUMPFWD, 0);
-        //swap();
-        //generate(OP_RESOLV, 0);
-
         code_t *else_jump = code_opcode(OP_JUMPFWD);
         resolve_jump(jump, code_opcode(OP_JUMP_TARGET));
         jump = else_jump;
 
         scan();
-        //statement();
         block_statement();
     }
 
-    //generate(OP_RESOLV, 0);
     resolve_jump(jump, code_opcode(OP_JUMP_TARGET));
 }
 
@@ -2833,34 +2821,24 @@ void while_statement(void)
 
     scan();
     expect_left_paren();
-    //generate(OP_MARK, 0);
 
     code_t *while_test = code_opcode(OP_JUMP_TARGET);
     _loop0 = while_test;
     
     expression(1);
-
     expect_right_paren();
-    //generate(OP_JMPFALSE, 0);
+
     code_t *jump_false = code_opcode(OP_JMPFALSE);
-    
+   
 
     block_statement();
     
     resolve_jump(code_opcode(OP_JUMPBACK), while_test);
-
-    //swap();
-    //generate(OP_JUMPBACK, 0);
-    //generate(OP_RESOLV, 0);
-
     resolve_jump(jump_false, code_opcode(OP_JUMP_TARGET));
 
     while (_leaves_ptr > old_leaves_ptr)
     {
-        //push(_leaves[_leaves_ptr-1]);
-        //generate(OP_RESOLV, 0);
         resolve_jump(_leaves[_leaves_ptr - 1], code_opcode(OP_JUMP_TARGET));
-
         _leaves_ptr--;
     }
 
@@ -2917,7 +2895,6 @@ void assignment_or_call(void)
         expression(0);
         if (sym == NULL)
         {
-            //generate(byte_addr ? OP_STINDB: OP_STINDR, 0);
             if (byte_addr)
                 code_opcode(OP_STINDB);
             else
@@ -2990,7 +2967,6 @@ void block_statement(void)
 
     if (old_local_frame_ptr - _local_frame_ptr != 0)
     {
-        //generate(OP_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
         code_opcode_value(OP_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
     }
 
@@ -3023,8 +2999,6 @@ void resolve_main(void)
         compiler_error("missing main entry point", NULL);
 
     _start_location = _text_buffer_ptr + TEXT_VADDR;
-    //generate(OP_CALL, main->value + TEXT_VADDR);
-    //generate(OP_HALT, 0);
     code_symbol(OP_CALL, main);
     code_opcode_value(OP_HALT, 0);
 }
@@ -3040,8 +3014,6 @@ void init(void)
     _symbol_table_ptr = 0;
 
 
-    //generate(OP_INIT, HEAP_END);
-    //generate(OP_JUMPFWD, 0);
     _code_start = alloc_code();
     _current_code = _code_start;
     _current_code->opcode = OP_INIT;
@@ -3052,14 +3024,10 @@ void init(void)
     if (_options->no_stdlib == 0)
     {
         // Heap allocation ptr
-        //add("__heap_ptr", SYM_GLOBF, _text_buffer_ptr + TEXT_VADDR - DATA_VADDR);
-        //emit_word(HEAP_START);
         symbol_t *sym = add("__heap_ptr", SYM_GLOBF, 0);
         sym->code = code_symbol_value(OP_WRITE_32, sym, HEAP_START);
 
         // 32 byte buffer
-        //add("__buffer", SYM_GLOBF, _text_buffer_ptr + TEXT_VADDR - DATA_VADDR);
-        //emit_allocate(32);
         sym = add("__buffer", SYM_GLOBF, 0);
         sym->code = code_symbol_value(OP_ALLOC_MEM, sym, 32);
     }
@@ -3067,6 +3035,15 @@ void init(void)
     // Add special math routines
     //_mul32_routine_address = _text_buffer_ptr + TEXT_VADDR;
     //emit_code(CG_MUL32, 0);
+    {
+        symbol_t *mul32 = add("__mul32", SYM_GLOBF, 0);
+        _mul32_code = code_asm(mul32, CG_MUL32);
+
+        symbol_t *div32 = add("__div32", SYM_GLOBF, 0);
+        _div32_code = code_asm(div32, CG_DIV32);
+    }
+
+
 
     //_div32_routine_address = _text_buffer_ptr + TEXT_VADDR;
     //emit_code(CG_DIV32, 0);

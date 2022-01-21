@@ -379,7 +379,6 @@ CG_INDEX:	; A := 4 * A + S0; P := P + 1
 	add.l d1,d0
 
 CG_INDEX_CONSTANT:
-	lsl.l #2,d0
 	add.l #$FEDCBA98,d0
 
 CG_DEREF:	; A := [A]
@@ -440,10 +439,10 @@ CG_LOGNOT:	;	if A = 0 then A: = −1 else A: = 0
 lognot_done:
 
 CG_ADD:		;	A := S0 + A; P := P + 1
-	;move.l (sp)+,d1
 	add.l (sp)+,d0
-	add.l #$05,d0
-	add.l #$FEDCBA98,d0
+
+CG_ADD_CONSTANT:
+	add.l  #$FEDCBA98,d0
 
 CG_SUB:		;	A: = S0 − A; P: = P + 1
 	move.l (sp)+,d1
