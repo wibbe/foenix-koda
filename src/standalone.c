@@ -55,6 +55,13 @@ int main(int argc, char *argv[])
             continue;
         }
 
+        if (strcmp(argv[arg], "-O0") == 0)
+        {
+            options.no_optimize = 1;
+            arg++;
+            continue;
+        }
+
         if (strcmp(argv[arg], "-o") == 0)
         {
             if (arg >= argc - 1)

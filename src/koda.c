@@ -68,7 +68,6 @@
 #define CG_GE               "221F24007000B4816E0270FF"
 #define CG_JMPFALSE         "4A806700,>"
 #define CG_JMPTRUE          "4A806600,>"
-#define CG_FOR              "221FB2806C00,>"
 #define CG_INCGLOB          "52B9,a"
 #define CG_INCLOCL          "52AE,w"
 #define CG_INC              "2A405295"
@@ -139,7 +138,6 @@ enum {
     KCONST, 
     KDECL, 
     KELSE, 
-    KFOR,
     KFUNC,
     KHALT, 
     KIF,
@@ -201,7 +199,6 @@ enum {
     OP_GE,
     OP_JMPFALSE,
     OP_JMPTRUE,
-    OP_FOR,
     OP_INCGLOB,
     OP_INCLOCL,
     OP_INC,
@@ -272,7 +269,6 @@ char *_opcode_names[OP_COUNT] = {
     [OP_GE] = "OP_GE",
     [OP_JMPFALSE] = "OP_JMPFALSE",
     [OP_JMPTRUE] = "OP_JMPTRUE",
-    [OP_FOR] = "OP_FOR",
     [OP_INCGLOB] = "OP_INCGLOB",
     [OP_INCLOCL] = "OP_INCLOCL",
     [OP_INC] = "OP_INC",
@@ -343,7 +339,6 @@ char *_opcode_to_machine_code[OP_COUNT] = {
     [OP_GE] = CG_GE,
     [OP_JMPFALSE] = CG_JMPFALSE,
     [OP_JMPTRUE] = CG_JMPTRUE,
-    [OP_FOR] = CG_FOR,
     [OP_INCGLOB] = CG_INCGLOB,
     [OP_INCLOCL] = CG_INCLOCL,
     [OP_INC] = CG_INC,    
@@ -660,7 +655,8 @@ void optimize_remove_dead_code(void)
     code_t *call_stack[64];
     int call_stack_ptr = 0;
     code_t *pc = _code_start;
-    int conditional_jump_count = 0;
+    int conditional_jump_count[64] = {0};
+
 
     // Step through all instructions, marking the ones that will actually be used.
     while (pc != NULL)
@@ -670,7 +666,7 @@ void optimize_remove_dead_code(void)
         switch (pc->opcode)
         {
             case OP_JUMPFWD:
-                if (conditional_jump_count == 0)
+                if (conditional_jump_count[call_stack_ptr] == 0)
                     pc = pc->code;
                 else
                     pc = pc->next;
@@ -678,30 +674,36 @@ void optimize_remove_dead_code(void)
 
             case OP_JMPFALSE:
             case OP_JMPTRUE:
-                conditional_jump_count++;
+                conditional_jump_count[call_stack_ptr]++;
                 pc = pc->next;
                 break;
 
             case OP_JUMP_TARGET:
-                if (conditional_jump_count > 0)
-                    conditional_jump_count--;
+                if (pc->code->opcode == OP_JMPTRUE || pc->code->opcode == OP_JMPFALSE)
+                    if (conditional_jump_count[call_stack_ptr] > 0)
+                        conditional_jump_count[call_stack_ptr]--;
                 pc = pc->next;
                 break;
 
             case OP_EXIT:
-                if (conditional_jump_count == 0)
+                if (conditional_jump_count[call_stack_ptr] == 0)
+                {
                     pc = call_stack[--call_stack_ptr];
+                }
                 else
+                {
                     pc = pc->next;
+                }
                 break;
 
             case OP_STGLOB:
             case OP_GLOBVEC:
+            case OP_LDADDR:
+            case OP_LDADDR_STACK:            
             case OP_LDGLOBAL:
             case OP_LDGLOBAL_STACK:
                 if (pc->symbol != NULL)
                 {   
-                    pc->symbol->used = true;
                     if (pc->symbol->code != NULL)
                         pc->symbol->code->used = true;
                 }
@@ -713,8 +715,6 @@ void optimize_remove_dead_code(void)
                     if (pc->symbol->code == NULL)
                         internal_error("No code associated with symbol", pc->symbol->name);
 
-                    pc->symbol->used = true;
-
                     if (pc->symbol->code->opcode == OP_ASM)
                     {
                         pc->symbol->code->used = true;
@@ -723,6 +723,7 @@ void optimize_remove_dead_code(void)
                     else
                     {
                         call_stack[call_stack_ptr++] = pc->next;
+                        conditional_jump_count[call_stack_ptr] = 0;
                         pc = pc->symbol->code;
                     }
                 }
@@ -933,6 +934,8 @@ void optimize_load_value_index(void)
 
 void optimize_code(void)
 {
+    // TODO: Add optimization for OP_STLOCL + OP_LDLOCL combinations
+
     optimize_remove_dead_code();
     optimize_jumps();
     optimize_load_push();
@@ -942,6 +945,33 @@ void optimize_code(void)
     optimize_fix_load_value_add_constant();
     optimize_merge_alloc();
     optimize_load_value_index();
+}
+
+void mark_used_symbols(void)
+{
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        switch (it->opcode)
+        {
+            case OP_STGLOB:
+            case OP_GLOBVEC:
+            case OP_LDADDR:
+            case OP_LDADDR_STACK:
+            case OP_LDGLOBAL:
+            case OP_LDGLOBAL_STACK:
+                if (it->symbol != NULL)
+                    it->symbol->used = true;
+                break;
+
+            case OP_CALL:
+                if (it->symbol->code == NULL)
+                    internal_error("No code associated with symbol", it->symbol->name);
+                it->symbol->used = true;
+                break;
+        }
+    }
+
+
 }
 
 void push(int x)
@@ -1041,6 +1071,7 @@ symbol_t *add(char *symbol_name, int flags, int value)
     _symbol_table[_symbol_table_ptr].flags = flags;
     _symbol_table[_symbol_table_ptr].value = value;
     _symbol_table[_symbol_table_ptr].used = false;
+    _symbol_table[_symbol_table_ptr].code = NULL;
     
     return &_symbol_table[_symbol_table_ptr++];
 }
@@ -1728,7 +1759,6 @@ int find_keyword(char *str)
             if (!strcmp(str, "else")) return KELSE;
             return 0;
         case 'f':
-            if (!strcmp(str, "for")) return KFOR;
             if (!strcmp(str, "func")) return KFUNC;
             return 0;
         case 'h':
@@ -2201,8 +2231,8 @@ void resolve_forward(int loc, int fn)
     }
 }
 
-bool block_statement(bool function_scope);
-bool statement(void);
+void block_statement(void);
+void statement(void);
 
 
 void function_declaration(void)
@@ -2260,16 +2290,13 @@ void function_declaration(void)
 
     _parsing_function = true;
     
-    bool last_was_return = block_statement(true);
+    block_statement();
 
     _parsing_function = false;
-    if (!last_was_return)
-    {
-        //generate(OP_CLEAR, 0);
-        //generate(OP_EXIT, 0);
-        code_opcode_value(OP_CLEAR, 0);
-        code_opcode_value(OP_EXIT, 0);
-    }
+    //generate(OP_CLEAR, 0);
+    //generate(OP_EXIT, 0);
+    code_opcode_value(OP_CLEAR, 0);
+    code_opcode_value(OP_EXIT, 0);
     
     //generate(OP_RESOLV, 0);
     resolve_jump(jump, code_opcode(OP_JUMP_TARGET));
@@ -2777,7 +2804,7 @@ void if_statement()
     
     expect_right_paren();
 
-    block_statement(false);
+    block_statement();
 
     if (_token == KELSE)
     {
@@ -2792,7 +2819,7 @@ void if_statement()
 
         scan();
         //statement();
-        block_statement(false);
+        block_statement();
     }
 
     //generate(OP_RESOLV, 0);
@@ -2818,7 +2845,7 @@ void while_statement(void)
     code_t *jump_false = code_opcode(OP_JMPFALSE);
     
 
-    block_statement(false);
+    block_statement();
     
     resolve_jump(code_opcode(OP_JUMPBACK), while_test);
 
@@ -2840,69 +2867,6 @@ void while_statement(void)
     _loop0 = old_loop0;
 }
 
-void for_statement(void)
-{
-    scan();
-    int old_loops_ptr = _loops_ptr;
-    int old_leaves_ptr = _leaves_ptr;
-    code_t *old_loop0 = _loop0;
-
-    _loop0 = NULL;
-
-    expect_left_paren();
-    expect(SYMBOL, "symbol");
-    symbol_t *variable = lookup(_token_str, 0);
-    scan();
-
-    if (variable->flags & (SYM_CONST | SYM_FUNCTION | SYM_DECLARATION))
-        compiler_error("unexpected type in for loop", variable->name);
-
-    expect_equal_sign();
-    expression(1);
-    store(variable);
-    expect(COMMA, "','");
-    scan();
-    //generate(OP_MARK, 0);
-    code_t *for_jump_target = code_opcode(OP_JUMP_TARGET);
-    
-    //int test = tos();
-
-    load(variable);
-    expression(0);
-
-    //generate(OP_FOR, 0);
-    expect_right_paren();
-
-    block_statement(false);
-
-    while (_loops_ptr > old_loops_ptr)
-    {
-        //push(_loops[_loops_ptr-1]);
-        //generate(OP_RESOLV, 0);
-        _loops_ptr--;
-    }
-
-    //if (variable->flags & SYM_GLOBF)
-    //    generate(OP_INCGLOB, variable->value);
-    //else
-    //    generate(OP_INCLOCL, variable->value);
-
-    swap();
-    //generate(OP_JUMPBACK, 0);
-    //generate(OP_RESOLV, 0);
-
-    while (_leaves_ptr > old_leaves_ptr)
-    {
-        //push(_leaves[_leaves_ptr-1]);
-        //generate(OP_RESOLV, 0);
-        resolve_jump(_leaves[_leaves_ptr - 1], code_opcode(OP_JUMP_TARGET));
-        _leaves_ptr--;
-    }
-
-    _loops_ptr = old_loops_ptr;
-    _loop0 = old_loop0;
-}
-
 void leave_statement(void)
 {
     if (_loop0 == NULL)
@@ -2913,7 +2877,6 @@ void leave_statement(void)
     if (_leaves_ptr >= MAXLOOP)
         compiler_error("too many LEAVEs", NULL);
 
-    //generate(OP_JUMPFWD, 0);
     _leaves[_leaves_ptr++] = code_opcode(OP_JUMPFWD);
 }
 
@@ -2923,36 +2886,18 @@ void loop_statement(void)
         compiler_error("LOOP not in loop context", 0);
 
     scan();
-/*
-    if (_loop0 > 0)
-    {
-*/
-        //push(_loop0);
-        //generate(OP_JUMPBACK, 0);
-        // Here we need to create a new jump target right after the _loop0 code object,
-        // and then jump back to that new target.
 
-        code_t *jump_target = alloc_code();
-        jump_target->opcode = OP_JUMP_TARGET;
+    code_t *jump_target = alloc_code();
+    jump_target->opcode = OP_JUMP_TARGET;
 
-        jump_target->next = _loop0->next;
-        jump_target->prev = _loop0;
+    jump_target->next = _loop0->next;
+    jump_target->prev = _loop0;
 
-        _loop0->next = jump_target;
-        if (jump_target->next != NULL)
-            jump_target->next->prev = jump_target;
+    _loop0->next = jump_target;
+    if (jump_target->next != NULL)
+        jump_target->next->prev = jump_target;
 
-        resolve_jump(code_opcode(OP_JUMPBACK), jump_target);
-/*
-    }
-    else
-    {
-        if (_loops_ptr >= MAXLOOP)
-            compiler_error("too many LOOPs", NULL);
-        //generate(OP_JUMPFWD, 0);
-        _loops[_loops_ptr++] = pop();
-    }
-*/
+    resolve_jump(code_opcode(OP_JUMPBACK), jump_target);
 }
 
 void assignment_or_call(void)
@@ -2993,13 +2938,10 @@ void assignment_or_call(void)
     }
 }
 
-bool statement(void)
+void statement(void)
 {
     switch (_token)
     {
-        case KFOR:
-            for_statement();
-            break;
         case KHALT:
             halt_statement();
             break;
@@ -3014,12 +2956,12 @@ bool statement(void)
             break;
         case KRETURN:
             return_statement();
-            return true;
+            break;
         case KWHILE:
             while_statement();
             break;
         case BLOCK_START:
-            block_statement(false);
+            block_statement();
             break;
         case SYMBOL:
             assignment_or_call();
@@ -3028,11 +2970,9 @@ bool statement(void)
             expect(0, "statement");
             break;
     }
-
-    return false;
 }
 
-bool block_statement(bool function_scope)
+void block_statement(void)
 {
     expect(BLOCK_START, "{");
     scan();
@@ -3043,28 +2983,19 @@ bool block_statement(bool function_scope)
     while (KVAR == _token || KCONST == _token || KSTRUCT == _token)
         declaration(0);
 
-    bool last_was_return = false;
     while (_token != BLOCK_END)
-        last_was_return = statement();
-
+        statement();
 
     scan();
 
-    // Do not deallocate local vars if we are a function block, and the last
-    // statement was a return statement.
-    if (!last_was_return && !function_scope)
+    if (old_local_frame_ptr - _local_frame_ptr != 0)
     {
-        if (old_local_frame_ptr - _local_frame_ptr != 0)
-        {
-            //generate(OP_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
-            code_opcode_value(OP_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
-        }
+        //generate(OP_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
+        code_opcode_value(OP_DEALLOC, old_local_frame_ptr-_local_frame_ptr);
     }
 
     _symbol_table_ptr = old_symbol_table_ptr;
     _local_frame_ptr = old_local_frame_ptr;
-
-    return last_was_return;
 }
 
 void program(void)
@@ -3213,7 +3144,11 @@ int koda_compile(koda_compiler_options_t *options)
             it->position = start_instruction_count++;
     }
 
-    optimize_code();
+    if (options->no_optimize == 0)
+        optimize_code();
+
+    mark_used_symbols();
+
     allocate_global_variables();
     generate_m68k_machine_code();
 

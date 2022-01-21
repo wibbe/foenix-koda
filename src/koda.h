@@ -18,6 +18,7 @@ typedef struct koda_compiler_options_t {
 	char *labels_filename;
 
 	int no_stdlib;
+	int no_optimize;
 	int debug;
 } koda_compiler_options_t;
 
