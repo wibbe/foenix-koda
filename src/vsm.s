@@ -127,85 +127,70 @@ MEMSCAN:
 	move.l a0,a1 				; copy start address to our iterator
 	move.l a0,a2 				; calculate end position
 	add.l d1,a2					; 
-memscan_loop:
+.memscan_loop:
 	cmp.l a1,a2					; are we at the end yet?
-	beq memscan_no_result
+	beq .memscan_no_result
 
 	clr.l d3
 	move.b (a1)+,d3				; fetch next byte to check
 	cmp.l d3,d2 				; have we found the byte we are looking for?
-	beq memscan_found_byte
-	bra memscan_loop 			; loop back
+	beq .memscan_found_byte
+	bra .memscan_loop 			; loop back
 
-memscan_found_byte:
+.memscan_found_byte:
 	move.l a1,d0 				; move iterator to return register
 	sub.l a0,d0					; subtract start position from iterator to get byte position
 	subq.l #1,d0 				; take into account that iterator as been moved to next char
 	rts
 
-memscan_no_result:
+.memscan_no_result:
 	move.l #-1,d0				; return negative value if byte was not found
 	rts
+
 
 MEMCOPY:
 	move.l (12,sp),a0 			; fetch destination pointer
 	move.l (8,sp),a1			; fetch source pointer
 	move.l (4,sp),d1			; fetch byte count to copy
-memcopy_loop:
+.memcopy_loop:
 	move.b (a1)+,(a0)+
-	dbra d1,memcopy_loop
+	dbra d1,.memcopy_loop
 	rts
 
-;* 'PRTNUM' prints the 32 bit number in D1, leading blanks are added if
-;* needed to pad the number of spaces to the number in D4.
-;* However, if the number of digits is larger than the no. in
-;* D4, all digits are printed anyway. Negative sign is also
-;* printed and counted in, positive sign is not.
-;PRTNUM	MOVE.L	D1,D3		save the number for later
-;	MOVE	D4,-(SP)	save the width value
-;	MOVE.B	#$FF,-(SP)	flag for end of digit string
-;	TST.L	D1		is it negative?
-;	BPL	PN1		if not
-;	NEG.L	D1		else make it positive
-;	SUBQ	#1,D4		one less for width count
-;PN1	DIVU	#10,D1		get the next digit
-;	BVS	PNOV		overflow flag set?
-;	MOVE.L	D1,D0		if not, save remainder
-;	AND.L	#$FFFF,D1	strip the remainder
-;	BRA	TOASCII 	skip the overflow stuff
-;PNOV	MOVE	D1,D0		prepare for long word division
-;	CLR.W	D1		zero out low word
-;	SWAP	D1		high word into low
-;	DIVU	#10,D1		divide high word
-;	MOVE	D1,D2		save quotient
-;	MOVE	D0,D1		low word into low
-;	DIVU	#10,D1		divide low word
-;	MOVE.L	D1,D0		D0 = remainder
-;	SWAP	D1		R/Q becomes Q/R
-;	MOVE	D2,D1		D1 is low/high
-;	SWAP	D1		D1 is finally high/low
-;TOASCII SWAP	D0		get remainder
-;	MOVE.B	D0,-(SP)	stack it as a digit
-;	SWAP	D0
-;	SUBQ	#1,D4		decrement width count
-;	TST.L	D1		if quotient is zero, we're done
-;	BNE	PN1
-;	SUBQ	#1,D4		adjust padding count for DBRA
-;	BMI	PN4		skip padding if not needed
-;PN3	MOVE.B	#' ',D0         display the required leading spaces
-;	BSR	GOOUT
-;	DBRA	D4,PN3
-;PN4	TST.L	D3		is number negative?
-;	BPL	PN5
-;	MOVE.B	#'-',D0         if so, display the sign
-;	BSR	GOOUT
-;PN5	MOVE.B	(SP)+,D0	now unstack the digits and display
-;	BMI	PNRET		until the flag code is reached
-;	ADD.B	#'0',D0         make into ASCII
-;	BSR	GOOUT
-;	BRA	PN5
-;PNRET	MOVE	(SP)+,D4	restore width value
-;	RTS
+MEMSET:
+	move.l (4,sp),d1 			; copy length
+	move.l (8,sp),d2 			; copy value to set to
+	move.l (12,sp),a0			; copy pointer to byte data
+.memset_loop:
+	move.b d2,(a0)+
+	dbra d1,.memset_loop
+	rts
+
+MIN:
+	move.l (4,sp),d1
+	move.l (8,sp),d2
+	cmp d1,d2
+	ble .min_d2 		; d1 >= d2
+	move.l d1,d0
+	bra .min_done
+.min_d2:
+	move.l d2,d0
+.min_done:
+	rts
+
+
+MAX:
+	move.l (4,sp),d1
+	move.l (8,sp),d2
+	cmp d1,d2
+	ble .max_d1 		; d1 >= d2
+	move.l d2,d0
+	bra .max_done
+.max_d1:
+	move.l d1,d0
+.max_done:
+	rts
+
 
 ;
 ; ===== Multiplies the 32 bit values in D0 and D1, returning
@@ -257,32 +242,32 @@ DIV32:
     move.l  d1,d4
     eor.l   d0,d4           ; see if the signs are the same
     tst.l   d0              ; take absolute value of d0
-    bpl     div1
+    bpl     .div1
     neg.l   d0
-div1:
+.div1:
 	tst.l   d1              ; take absolute value of d1
-    bpl     div2
+    bpl     .div2
     neg.l   d1
-div2:
+.div2:
     moveq   #31,d3          ; iteration count for 32 bits
 	move.l  d0,d1
     clr.l   d0
-div3:
+.div3:
     add.l   d1,d1           ; (This algorithm was translated from
     addx.l  d0,d0           ; the divide routine in Ron Cain's
-    beq     div4            ; Small-C run time library.)
+    beq     .div4           ; Small-C run time library.)
     cmp.l   d2,d0
-    bmi     div4
+    bmi     .div4
     addq.l  #1,d1
     sub.l   d2,d0
-div4:
-    dbra    d3,div3
+.div4:
+    dbra    d3,.div3
     exg     d0,d1           ; put rem. & quot. in proper registers
     tst.l   d4              ; were the signs the same?
-    bpl     divrt
+    bpl     .divrt
     neg.l   d0              ; if not, results are negative
     neg.l   d1
-divrt:
+.divrt:
     rts
 
 
@@ -301,30 +286,32 @@ CG_CLEAR:	; A: = 0
 
 CG_LDVAL: 	; w	P: = P − 1; S0: = A; A: = w
 	move.l #$FEDCBA98,d0
+
 CG_LDVAL_SHORT:
 	moveq	#$55,d0
+
 CG_LDVAL_STACK:
 	move.l #$FEDCBA98,-(sp)
-;CG_LDVAL_STACK_SHORT:
-;	moveq	#$55,-(sp)
-
 
 CG_LDADDR: 	; a	P: = P − 1; S0: = A; A: = a
 	move.l #$FEDCBA98,d0
-CG_LDADDR_SP:
+
+CG_LDADDR_STACK:
 	move.l #$FEDCBA98,-(sp)
 
-CG_LDLREF: 	; w 	P: = P − 1; S0: = A; A: = F + w
+CG_LDLOCALREF: 	; w 	P: = P − 1; S0: = A; A: = F + w
 	move.l a6,d0
 	add.l #$FEDCBA98,d0
 
 CG_LDGLOB: 		; a	P: = P − 1; S0: = A; A: = [a]
 	move.l $FEDCBA98,d0
-CG_LDGLOB_SP:
+
+CG_LDGLOB_STACK:
 	move.l $FEDCBA98,-(sp)
 
 CG_LDLOCL: 	; w	P: = P − 1; S0: = A; A: = [F + w]
 	move.l $FED(a6),d0
+
 CG_LDLOCL_STACK:
 	move.l $FED(a6),-(sp)
 
@@ -355,10 +342,11 @@ CG_DECGLOB:	; a 	[a]: = [a] + 1
 CG_DECLOCL: 	;w  	[F + w]: = [F + w] + 1
 	sub.l #1,$FED(a6)
 
-CG_INC:			; [A] := [A] + 1
+CG_INC:			; [A] := [A] + 1, A := [A]
 	move.l d0,a5
+	move.l (a5),d1
 	addq.l #1,(a5)
-
+	move.l d1,d0
 
 CG_ALLOC:	; w	P: = P − w
 	suba.l #$FEDCBA98,a7
@@ -397,6 +385,10 @@ CG_DREFB:	; A := b[A]
 CG_CALL:	; w 	P := P − 1; S0 := I; I := w
 	jsr $FEDCBA98
 
+CG_CALL_INDIRECT:
+	move.l $FEDCBA98,a0
+	jsr (a0)
+
 CG_JUMPFWD:	; w 	I: = w;
 	bra CG_JMPTRUE
 
@@ -434,9 +426,9 @@ CG_LOGNOT:	;	if A = 0 then A: = −1 else A: = 0
 	move.l d0,d1
 	clr.l d0
 	cmp.l #0,d1
-	bne lognot_done
+	bne done
 	move.l #$ffffffff,d0
-lognot_done:
+done:
 
 CG_ADD:		;	A := S0 + A; P := P + 1
 	add.l (sp)+,d0
@@ -465,7 +457,6 @@ CG_MOD:		;	A: = S0 mod A; P: = P + 1
 	move.l d1,d0
 
 CG_AND:		; A := S0 AND A; P := P + 1
-	;move.l (sp)+,d1
 	and.l (sp)+,d0
 
 CG_OR:		; A := S0 OR A; P := P + 1
@@ -486,45 +477,45 @@ CG_EQ:		; if S0 = A then A: = −1 else A: = 0; always: P: = P + 1
 	move.l d0,d2
 	move.l #0,d0
 	cmp.l d1,d2
-	bne eq_done
+	bne .done
 	move.l #$FFFFFFFF,d0
-eq_done:
+.done:
 
 CG_NEQ: 	; if S0 ≠ A then A: = −1 else A: = 0; always: P: = P + 1
 	move.l (sp)+,d1
 	move.l d0,d2
 	move.l #0,d0
 	cmp.l d1,d2
-	beq neq_done
+	beq .done
 	move.l #$FFFFFFFF,d0
-neq_done:
+.done:
 
 CG_LT: 		; if S0(d1) < A(d2) then A: = −1 else A: = 0 always: P: = P + 1
 	move.l (sp)+,d1
 	move.l d0,d2
 	move.l #0,d0
 	cmp.l d1,d2
-	ble lt_done 		; d1 >= d2
+	ble .done 		; d1 >= d2
 	move.l #$FFFFFFFF,d0
-lt_done:	
+.done:	
 
 CG_GT:		; if S0 > A then A: = −1 else A: = 0 always: P: = P + 1
 	move.l (sp)+,d1
 	move.l d0,d2
 	move.l #0,d0
 	cmp.l d1,d2
-	bge gt_done 		; d1 <= d2
+	bge .done 		; d1 <= d2
 	move.l #$FFFFFFFF,d0
-gt_done:
+.done:
 
 CG_LE:		; if S0 ≤ A then A: = −1 else A: = 0; always: P: = P + 1
 	move.l (sp)+,d1
 	move.l d0,d2
 	move.l #0,d0
 	cmp.l d1,d2
-	blt le_done 		; d1 > d2
+	blt .done 		; d1 > d2
 	move.l #$FFFFFFFF,d0
-le_done:	
+.done:	
 
 CG_GE:		; if S0 ≥ A then A: = −1 else A: = 0; always: P: = P + 1
 	move.l (sp)+,d1
@@ -544,3 +535,29 @@ CG_SHR:		;	A := S0 div 2A; P := P + 1 (r ight shift)
 	move.l (sp)+,d1
 	lsr.l d0,d1
 	move.l d1,d0
+
+CG_PEEK8:
+	move.l d0,a5
+	clr.l d0
+	move.b (a5),d0
+
+CG_PEEK16:
+	move.l d0,a5
+	clr.l d0
+	move.w (a5),d0
+
+CG_PEEK32:
+	move.l d0,a5
+	move.l (a0),d0
+
+CG_POKE8:
+	move.l (sp)+,a5
+	move.b d0,(a5)
+
+POKE16:
+	move.l (sp)+,a5
+	move.w d0,(a5)
+
+POKE32:
+	move.l (sp)+,a5
+	move.l d0,(a5)

@@ -7,6 +7,11 @@ enum {
     KODA_OUTPUT_TYPE_SREC   = 1,
 };
 
+typedef struct koda_embed_t {
+	char *name;
+	char *source_file;
+} koda_embed_t;
+
 typedef struct koda_compiler_options_t {
 	char *input_files[32];
 	int input_files_count;
@@ -17,9 +22,16 @@ typedef struct koda_compiler_options_t {
 	int generate_labels;
 	char *labels_filename;
 
-	int no_stdlib;
+	koda_embed_t embed_files[32];
+	int embed_files_count;
+
 	int no_optimize;
 	int debug;
+
+	int text_start_address;
+	int data_start_address;
+	int text_size;
+	int data_size;
 } koda_compiler_options_t;
 
 

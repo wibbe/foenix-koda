@@ -1,13 +1,34 @@
 
-const SYS_EXIT 			= 0x00
-const SYS_CHAN_READ 	= 0x10
-const SYS_CHAN_READ_B	= 0x11
-const SYS_CHAN_WRITE	= 0x13
-const SYS_CHAN_WRITE_B	= 0x14
+const SYS_EXIT 				= 0x00
+const SYS_INT_REGISTER  	= 0x02
+const SYS_INT_ENABLE    	= 0x03
+const SYS_INT_DISABLE		= 0x04
+const SYS_CHAN_READ 		= 0x10
+const SYS_CHAN_READ_B		= 0x11
+const SYS_CHAN_WRITE		= 0x13
+const SYS_CHAN_WRITE_B		= 0x14
+const SYS_KEYBOARD_SCANCODE	= 0x53
+
+const INT_VKY_START_OF_FRAME	= 0x00
+const INT_VKY_START_OF_LINE		= 0x01
+const INT_VKY_SPRITE_COLLISION	= 0x02
+const INT_VKY_BITMAP_COLLISION	= 0x03
 
 
 func sys_exit() {
 	syscall0(SYS_EXIT)
+}
+
+func sys_int_enable(number) {
+    syscall1(SYS_INT_ENABLE, number)
+}
+
+func sys_int_disable(number) {
+    syscall1(SYS_INT_DISABLE, number)
+}
+
+func sys_int_register(number, callback) {
+    syscall2(SYS_INT_REGISTER, number, callback)
 }
 
 func sys_chan_read(channel, data, len) {
@@ -24,6 +45,10 @@ func sys_chan_write(channel, data, len) {
 
 func sys_chan_write_b(channel, ch) {
 	syscall2(SYS_CHAN_WRITE_B, channel, ch)
+}
+
+func sys_keyboard_scancode() {
+    return syscall0(SYS_KEYBOARD_SCANCODE)
 }
 
 func str_length(str) {

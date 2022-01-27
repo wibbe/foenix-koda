@@ -41,6 +41,7 @@
 #define CG_INDXB            "221FD081"              // A: = A + S0; P: = P + 1
 #define CG_DREFB            "2A4070001015"
 #define CG_CALL             "4EB9,a"
+#define CG_CALL_INDIRECT    "2079,a4E90"
 #define CG_JUMPFWD          "6000,>"
 #define CG_JUMPBACK         "6000,<"
 #define CG_JUMP_TARGET      ",r"
@@ -70,7 +71,13 @@
 #define CG_JMPTRUE          "4A806600,>"
 #define CG_INCGLOB          "52B9,a"
 #define CG_INCLOCL          "52AE,w"
-#define CG_INC              "2A405295"
+#define CG_INC              "2A40221552952001"
+#define CG_PEEK8            "2A4070001015"
+#define CG_PEEK16           "2A4070003015"
+#define CG_PEEK32           "2A402010"
+#define CG_POKE8            "2A5F1A80"
+#define CG_POKE16           "2A5F3A80"
+#define CG_POKE32           "2A5F2A80"
 
 #define CG_FUNC_SYSCALL0    "2F002F0E202F000C4E4F2C5F201F4E75"
 #define CG_FUNC_SYSCALL1    "2F002F0E222F000C202F00104E4F2C5F201F4E75"
@@ -78,6 +85,9 @@
 #define CG_FUNC_SYSCALL3    "2F002F0E262F000C242F0010222F0014202F00184E4F2C5F201F4E75"
 #define CG_FUNC_MEMSCAN     "222F0004242F0008206F000C22482448D5C1B5C9671276001619B483670260F22009908853804E7570FF4E75"
 #define CG_FUNC_MEMCOPY     "206F000C226F0008222F000410D951C9FFFC4E75"
+#define CG_FUNC_MEMSET      "222F0004242F0008206F000C10C251C9FFFC4E75"
+#define CG_FUNC_MIN         "222F0004242F0008B4416F042001600220024E75"
+#define CG_FUNC_MAX         "222F0004242F0008B4416F042002600220014E75"
 
 #define CG_MUL32            "2801B1844A806A0244804A816A024481B2BC0000FFFF630CC141B2BC0000FFFF620000203400C4C14840C0C148404A4066000010D0826B00000A4A846A0244804E75700060FA"
 #define CG_DIV32            "24012801B1844A806A0244804A816A024481761F22007000D281D1806708B0826B045281908251CBFFF0C1414A846A04448044814E75"
@@ -87,11 +97,6 @@ enum {
     BPW                     = 4,
     PROGRAM_SIZE            = 0xF000,
 
-    TEXT_VADDR              = 0x00020000,
-    DATA_VADDR              = 0x00040000,
-
-    TEXT_SIZE               = 0x10000,
-    DATA_SIZE               = 0x10000,
     RELOCATION_SIZE         = 10000,
     STACK_SIZE              = 100,
     SYMBOL_TABLE_SIZE       = 2048,
@@ -102,7 +107,6 @@ enum {
     SYM_VECTOR              = 0x04,
     SYM_DECLARATION         = 0x08,
     SYM_FUNCTION            = 0x10,
-    SYM_MEMORY              = 0x20,
 
     MAXTBL                  = 1024,
     MAXLOOP                 = 100,
@@ -133,15 +137,21 @@ enum {
     RBRACK, 
     RPAREN, 
     UNOP,
+    INC,
     BLOCK_START, 
     BLOCK_END,
     KCONST, 
     KDECL, 
-    KELSE, 
+    KELSE,
     KFUNC,
     KHALT, 
     KIF,
-    KMAIN,
+    KPEEK8,
+    KPEEK16,
+    KPEEK32,
+    KPOKE8,
+    KPOKE16,
+    KPOKE32,
     KLEAVE, 
     KLOOP, 
     KRETURN, 
@@ -174,6 +184,7 @@ enum {
     OP_INDXB,
     OP_DREFB,
     OP_CALL,
+    OP_CALL_INDIRECT,
     OP_JUMPFWD,
     OP_JUMPBACK,
     OP_ENTER,
@@ -202,6 +213,12 @@ enum {
     OP_INCGLOB,
     OP_INCLOCL,
     OP_INC,
+    OP_PEEK8,
+    OP_PEEK16,
+    OP_PEEK32,
+    OP_POKE8,
+    OP_POKE16,
+    OP_POKE32,
 
     // Special opcodes used internally for optimization
     OP_ASM,                 // We have a blob of assembly code
@@ -244,6 +261,7 @@ char *_opcode_names[OP_COUNT] = {
     [OP_INDXB] = "OP_INDXB",
     [OP_DREFB] = "OP_DREFB",
     [OP_CALL] = "OP_CALL",
+    [OP_CALL_INDIRECT] = "OP_CALL_INDIRECT",
     [OP_JUMPFWD] = "OP_JUMPFWD",
     [OP_JUMPBACK] = "OP_JUMPBACK",
     [OP_ENTER] = "OP_ENTER",
@@ -272,6 +290,12 @@ char *_opcode_names[OP_COUNT] = {
     [OP_INCGLOB] = "OP_INCGLOB",
     [OP_INCLOCL] = "OP_INCLOCL",
     [OP_INC] = "OP_INC",
+    [OP_PEEK8] = "OP_PEEK8",
+    [OP_PEEK16] = "OP_PEEK16",
+    [OP_PEEK32] = "OP_PEEK32",
+    [OP_POKE8] = "OP_POKE8",
+    [OP_POKE16] = "OP_POKE16",
+    [OP_POKE32] = "OP_POKE32",
     [OP_ASM] = "OP_ASM",
     [OP_JUMP_TARGET] = "OP_JUMP_TARGET",
     [OP_ALLOC_MEM] = "OP_ALLOC_MEM",
@@ -313,6 +337,7 @@ char *_opcode_to_machine_code[OP_COUNT] = {
     [OP_INDXB] = CG_INDXB,
     [OP_DREFB] = CG_DREFB,
     [OP_CALL] = CG_CALL,
+    [OP_CALL_INDIRECT] = CG_CALL_INDIRECT,
     [OP_JUMPFWD] = CG_JUMPFWD,
     [OP_JUMPBACK] = CG_JUMPBACK,
     [OP_JUMP_TARGET] = CG_JUMP_TARGET,
@@ -343,6 +368,12 @@ char *_opcode_to_machine_code[OP_COUNT] = {
     [OP_INCGLOB] = CG_INCGLOB,
     [OP_INCLOCL] = CG_INCLOCL,
     [OP_INC] = CG_INC,    
+    [OP_PEEK8] = CG_PEEK8,
+    [OP_PEEK16] = CG_PEEK16,
+    [OP_PEEK32] = CG_PEEK32,
+    [OP_POKE8] = CG_POKE8,
+    [OP_POKE16] = CG_POKE16,
+    [OP_POKE32] = CG_POKE32,
 };
 
 
@@ -394,12 +425,9 @@ bool _has_main_body = false;
     static int _output_channel = 0;
 #endif
 
-relocation_t *_relocation_table;
-
 unsigned char *_text_buffer;
 unsigned char *_data_buffer;
 
-int _relocation_ptr = 0;
 int _text_buffer_ptr = 0;
 int _data_buffer_ptr = 0;
 int _local_frame_ptr = 0;
@@ -435,10 +463,14 @@ int _div32_routine_address;
 int _mul32_routine_address;
 
 
-void compiler_error(char *message, char *extra)
+#define compiler_error(message, extra) \
+    print_compiler_error(__FILE__, __LINE__, (message), (extra))
+
+
+void print_compiler_error(char *file, int line, char *message, char *extra)
 {
 #if PLATFORM_WIN    
-    fprintf(stderr, "error: %s(%d): %s", _program_source_file, _current_line + 1, message);
+    fprintf(stderr, "%s(%d) error: %s(%d): %s", file, line, _program_source_file, _current_line + 1, message);
     if (extra != NULL)
         fprintf(stderr, ": %s", extra);
     fputc('\n', stderr);
@@ -577,6 +609,10 @@ void print_code(code_t *code)
             printf("%s%s(%d)\n", buffer, code->symbol->name, code->symbol->flags >> 8);
             break;
 
+        case OP_CALL_INDIRECT:
+            printf("%s%s\n", buffer, code->symbol->name);
+            break;
+
         case OP_JUMP_TARGET:
             printf("%s%06X\n", buffer, code->code->position);
             break;
@@ -637,12 +673,18 @@ void remove_next(code_t *code)
     if (code->next == NULL)
         return;
 
+    code_t *to_remove = code->next;
+
     code_t *prev = code;
     code_t *next = code->next->next;
 
     prev->next = next;
     if (next != NULL)
         next->prev = prev;
+
+#if PLATFORM_WIN
+    free(to_remove);
+#endif    
 }
 
 
@@ -651,15 +693,6 @@ void optimize_remove_dead_code(void)
     // Mark all code as unused
     for (code_t *it = _code_start; it != NULL; it = it->next)
         it->used = false;
-
-    // Special pass to handle mul32 and div32 asm code
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (it->opcode == OP_MUL)
-            _mul32_code->used = true;
-        else if (it->opcode == OP_DIV || it->opcode == OP_MOD)
-            _div32_code->used = true;
-    }
 
     code_t *call_stack[64];
     int call_stack_ptr = 0;
@@ -714,26 +747,60 @@ void optimize_remove_dead_code(void)
                 if (pc->symbol != NULL)
                 {   
                     if (pc->symbol->code != NULL)
+                    {
                         pc->symbol->code->used = true;
+
+                        // This monstrosity makes sure we mark functions if we take the address of a function
+                        if (pc->symbol->flags & SYM_FUNCTION)
+                        {
+                            if (pc->symbol->code->opcode == OP_ASM)
+                            {
+                                pc->symbol->code->used = true;
+                                pc = pc->next;
+                            }
+                            else
+                            {
+                                call_stack[call_stack_ptr++] = pc->next;
+                                conditional_jump_count[call_stack_ptr] = 0;
+                                pc = pc->symbol->code;
+                            }
+                        }
+                        else
+                        {
+                            pc = pc->next;
+                        }
+                    }
+                    else
+                    {
+                        pc = pc->next;
+                    }
                 }
-                pc = pc->next;
+                else
+                {
+                    pc = pc->next;
+                }
                 break;
 
             case OP_CALL:
                 {
                     if (pc->symbol->code == NULL)
-                        internal_error("No code associated with symbol", pc->symbol->name);
-
-                    if (pc->symbol->code->opcode == OP_ASM)
                     {
-                        pc->symbol->code->used = true;
+                        // This could be a call to a function pointer
                         pc = pc->next;
                     }
                     else
                     {
-                        call_stack[call_stack_ptr++] = pc->next;
-                        conditional_jump_count[call_stack_ptr] = 0;
-                        pc = pc->symbol->code;
+                        if (pc->symbol->code->opcode == OP_ASM)
+                        {
+                            pc->symbol->code->used = true;
+                            pc = pc->next;
+                        }
+                        else
+                        {
+                            call_stack[call_stack_ptr++] = pc->next;
+                            conditional_jump_count[call_stack_ptr] = 0;
+                            pc = pc->symbol->code;
+                        }
                     }
                 }
                 break;
@@ -741,6 +808,18 @@ void optimize_remove_dead_code(void)
             default:
                 pc = pc->next;
                 break;
+        }
+    }
+
+    // Special pass to handle mul32 and div32 asm code
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        if (it->used)
+        {
+            if (it->opcode == OP_MUL)
+                _mul32_code->used = true;
+            else if (it->opcode == OP_DIV || it->opcode == OP_MOD)
+                _div32_code->used = true;
         }
     }
 
@@ -984,6 +1063,8 @@ void optimize_code(void)
 {
     // TODO: Add optimization for OP_STLOCL + OP_LDLOCL combinations
     //       Add new opcode for OP_LDVAL + OP_STLOCL pair
+    //       Divide and multiply by power of 2 should be rewritten as left/right shifts
+    //       Remove unused local variables from functions
 
     // The order of these optimization passes are really important, we can not move them around without
     // changing the generated machine code.
@@ -1016,8 +1097,6 @@ void mark_used_symbols(void)
                 break;
 
             case OP_CALL:
-                if (it->symbol->code == NULL)
-                    internal_error("No code associated with symbol", it->symbol->name);
                 it->symbol->used = true;
                 break;
 
@@ -1033,8 +1112,6 @@ void mark_used_symbols(void)
                 break;
         }
     }
-
-
 }
 
 
@@ -1116,12 +1193,9 @@ symbol_t *add(char *symbol_name, int flags, int value)
  * Emitter
  */
 
-void generate(int opcode, int value);
-
 void spill(void)
 {
     if (_accumulator_loaded)
-        //generate(OP_PUSH, 0);
         code_opcode_value(OP_PUSH, 0);
     else
         _accumulator_loaded = 1;
@@ -1220,37 +1294,6 @@ int data_fetch(int address)
     return _data_buffer[address + 3] | (_data_buffer[address + 2]<<8) | (_data_buffer[address + 1]<<16) | (_data_buffer[address + 0]<<24);
 }
 
-void tag(int seg)
-{
-    if (_relocation_ptr >= RELOCATION_SIZE)
-        internal_error("relocation buffer overflow", NULL);
-
-    _relocation_table[_relocation_ptr].seg = seg;
-    _relocation_table[_relocation_ptr].addr = seg == 't' ? _text_buffer_ptr - BPW : _data_buffer_ptr - BPW;
-    _relocation_ptr++;
-}
-
-void resolve(void)
-{
-    int dist = DATA_VADDR;
-
-    for (int i = 0; i < _relocation_ptr; ++i)
-    {
-        if (_relocation_table[i].seg == 't')
-        {
-            int address = text_fetch(_relocation_table[i].addr);
-            address += dist;
-            text_patch_word(_relocation_table[i].addr, address);
-        }
-        else
-        {
-            int address = data_fetch(_relocation_table[i].addr);
-            address += dist;
-            data_patch(_relocation_table[i].addr, address);
-        }
-    }   
-}
-
 void allocate_global_variables(void)
 {
     for (int i = 0; i < _symbol_table_ptr; ++i)
@@ -1262,8 +1305,11 @@ void allocate_global_variables(void)
         // Only allocate data space for global variables
         if ((sym->flags == SYM_GLOBF) || (sym->flags == (SYM_GLOBF | SYM_VECTOR)))
         {
-            sym->value = _data_buffer_ptr + DATA_VADDR;
-            data_word(0);
+            if (sym->value == 0)
+            {
+                sym->value = _data_buffer_ptr + _options->data_start_address;
+                data_word(0);
+            }
         }
     }
 }
@@ -1273,7 +1319,7 @@ void emit_code(code_t *code, char *machine_code)
     if (machine_code == NULL)
         internal_error("missing machine code for opcode", _opcode_names[code->opcode]);
 
-    code->position = _text_buffer_ptr + TEXT_VADDR;
+    code->position = _text_buffer_ptr + _options->text_start_address;
 
     while (*machine_code)
     {
@@ -1351,17 +1397,17 @@ void emit_m68k_machine_code(void)
         switch (it->opcode)
         {
             case OP_WRITE_32:
-                it->symbol->value = _text_buffer_ptr + TEXT_VADDR;
+                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
                 emit_word(it->value);
                 break;
 
             case OP_ALLOC_MEM:
-                it->symbol->value = _text_buffer_ptr + TEXT_VADDR;
+                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
                 emit_allocate(it->value);
                 break;
 
             case OP_ENTER:
-                it->symbol->value = _text_buffer_ptr + TEXT_VADDR;
+                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
                 emit_code(it, CG_ENTER);
                 break;
 
@@ -1374,7 +1420,7 @@ void emit_m68k_machine_code(void)
 
             case OP_ASM:
                 if (it->symbol != NULL)
-                    it->symbol->value = _text_buffer_ptr + TEXT_VADDR;
+                    it->symbol->value = _text_buffer_ptr + _options->text_start_address;
                 emit_code(it, it->assembly);
                 break;
 
@@ -1402,13 +1448,6 @@ void generate_m68k_machine_code(void)
 
 void builtin(char *name, int arity, char *code)
 {
-    /*
-    generate(OP_JUMPFWD, 0);
-    symbol_t *func = add(name, SYM_GLOBF | SYM_FUNCTION | (arity << 8), _text_buffer_ptr);
-    emit_code(code, 0);
-    generate(OP_RESOLV, 0);
-    */
-
     code_t *jmp = code_opcode(OP_JUMPFWD);
     symbol_t *func = add(name, SYM_GLOBF | SYM_FUNCTION | (arity << 8), 0);
     code_asm(func, code);
@@ -1466,9 +1505,9 @@ void save_labels(void)
         int value = sym->value;
 /*
         if (sym->flags & SYM_FUNCTION)
-            value += TEXT_VADDR;
+            value += _options->text_start_address;
         else if (!(sym->flags & SYM_CONST))
-            value += DATA_VADDR;
+            value += _options->data_start_address;
 */
         fprintf(_output_target, "%08X\t%s\n", value, sym->name);
     }
@@ -1487,7 +1526,7 @@ void write_pgz_header(void)
     write_output_byte('z');
 
     // write initial start segment
-    write_output_word(TEXT_VADDR);      // start address
+    write_output_word(_options->text_start_address);      // start address
     write_output_word(0);               // size
 }
 
@@ -1586,14 +1625,18 @@ void save_output(char *output_filename)
     if (_options->output_type == KODA_OUTPUT_TYPE_PGZ)
     {
         write_pgz_header();
-        write_pgz_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
-        write_pgz_segment(DATA_VADDR, _data_buffer, _data_buffer_ptr);
+        write_pgz_segment(_options->text_start_address, _text_buffer, _text_buffer_ptr);
+        write_pgz_segment(_options->data_start_address, _data_buffer, _data_buffer_ptr);
+
+        // TODO: Add binary files as custom segments here
     }
     else
     {
         write_srec_header();
-        write_srec_segment(TEXT_VADDR, _text_buffer, _text_buffer_ptr);
-        write_srec_segment(DATA_VADDR, _data_buffer, _data_buffer_ptr);
+        write_srec_segment(_options->text_start_address, _text_buffer, _text_buffer_ptr);
+        write_srec_segment(_options->data_start_address, _data_buffer, _data_buffer_ptr);
+
+        // TODO: Add binary files as custom segments here
     }
 
 #if PLATFORM_WIN
@@ -1629,6 +1672,7 @@ void read_input_source(char *source_file)
     if (input == NULL)
         compiler_error("could not read source file", source_file);
 
+    // TODO: We should make sure _program_source actually can handle the complete file
     _program_source_len = fread(_program_source, 1, PROGRAM_SIZE, input);
     if (_program_source_len >= PROGRAM_SIZE)
         compiler_error("program too big", NULL);
@@ -1719,6 +1763,7 @@ typedef struct operator_t {
 operator_t _operators[] = {
     { 7, 1, "%",    BINOP,  OP_MOD      },
     { 6, 1, "+",    BINOP,  OP_ADD      },
+    { 8, 2, "++",   INC,    0           },
     { 7, 1, "*",    BINOP,  OP_MUL      },
     { 0, 1, ",",    COMMA,  0           },
     { 0, 1, "(",    LPAREN, 0           },
@@ -1806,8 +1851,13 @@ int find_keyword(char *str)
             if (!strcmp(str, "leave")) return KLEAVE;
             if (!strcmp(str, "loop")) return KLOOP;
             return 0;
-        case 'm':
-            if (!strcmp(str, "main")) return KMAIN;
+        case 'p':
+            if (!strcmp(str, "peek8")) return KPEEK8;
+            if (!strcmp(str, "peek16")) return KPEEK16;
+            if (!strcmp(str, "peek32")) return KPEEK32;
+            if (!strcmp(str, "poke8")) return KPOKE8;
+            if (!strcmp(str, "poke16")) return KPOKE16;
+            if (!strcmp(str, "poke32")) return KPOKE32;
             return 0;
         case 'r':
             if (!strcmp(str, "return")) return KRETURN;
@@ -1996,7 +2046,7 @@ int scan_next_token(void)
         return INTEGER;
     }
 
-    if ('\'' == ch)
+    if (ch == '\'')
     {
         _token_value = read_encoded_char();
         if (read_char() != '\'')
@@ -2004,7 +2054,7 @@ int scan_next_token(void)
         return INTEGER;
     }
 
-    if ('"' == ch)
+    if (ch == '"')
     {
         int i = 0;
         ch = read_encoded_char();
@@ -2121,7 +2171,7 @@ void var_declaration(int glob)
         expect(SYMBOL, "symbol");
         size = 1;
         if (glob & SYM_GLOBF)
-            var = add(_token_str, glob, _data_buffer_ptr);
+            var = add(_token_str, glob, 0);
         else
             var = add(_token_str, 0, _local_frame_ptr);
 
@@ -2153,9 +2203,6 @@ void var_declaration(int glob)
                 code_opcode_value(OP_ALLOC, size * BPW);
                 code_symbol(OP_GLOBVEC, var);
             }
-            
-            // We will allocate space for the variables at a later state in the compilation
-            //data_word(0);
         }
         else
         {
@@ -2360,7 +2407,7 @@ void function_call(symbol_t *fn)
     int argument_count = 0;
 
     scan();
-    if (NULL == fn)
+    if (fn == NULL)
         compiler_error("call of non-function", NULL);
 
     while (_token != RPAREN)
@@ -2368,11 +2415,11 @@ void function_call(symbol_t *fn)
         expression(0);
         argument_count++;
 
-        if (COMMA != _token)
+        if (_token != COMMA)
             break;
         scan();
         
-        if (RPAREN == _token)
+        if (_token == RPAREN)
             compiler_error("syntax error", _token_str);
     }
 
@@ -2392,7 +2439,10 @@ void function_call(symbol_t *fn)
     }
     else
     {
-        code_symbol(OP_CALL, fn);
+        if (fn->flags & SYM_FUNCTION)
+            code_symbol(OP_CALL, fn);
+        else
+            code_symbol(OP_CALL_INDIRECT, fn);
     }
 
     if (argument_count != 0)
@@ -2458,13 +2508,13 @@ int make_table(void)
         }
         else if (_token == STRING)
         {
-            table_value[n++] = make_string(_token_str) + DATA_VADDR;
+            table_value[n++] = make_string(_token_str) + _options->data_start_address;
             //table_code[n++] = 1;
             scan();
         }
         else if (_token == LBRACK)
         {
-            table_value[n++] = make_table() + DATA_VADDR;
+            table_value[n++] = make_table() + _options->data_start_address;
             //table_code[n++] = 1;
         }
         else
@@ -2487,15 +2537,7 @@ int make_table(void)
         data_word(table_value[i]);
 
         if (table_code[i] != NULL)
-        {
-            table_code[i]->value = _data_buffer_ptr - 4 + DATA_VADDR;
-            //tag('d');
-        }
-//        else if (table_code[i] > 1)
-//        {
-//            //text_patch_word(table_code[i], _data_buffer_ptr-4);
-//
-//        }
+            table_code[i]->value = _data_buffer_ptr - 4 + _options->data_start_address;
     }
 
     return loc;
@@ -2526,7 +2568,7 @@ symbol_t *address(int level, int *byte_ptr)
 
     if (sym->flags & SYM_CONST)
     {
-        if (level > 0 && !(sym->flags & SYM_MEMORY))
+        if (level > 0)
             compiler_error("invalid address", sym->name);
 
         spill();
@@ -2536,17 +2578,26 @@ symbol_t *address(int level, int *byte_ptr)
     else if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION))
     {
         if (level == 2)
-            compiler_error("invalid address", sym->name);
+            return sym;
     }
     else if (level == 0 || _token == LBRACK || _token == BYTEOP)
     {
         spill();
-        load(sym);
+
+        if (_token == INC)
+        {
+            if (sym->flags & SYM_GLOBF)
+                code_symbol(OP_LDADDR, sym);
+            else
+                code_opcode_value(OP_LDLOCALREF, sym->value);
+        }
+        else
+            load(sym);
     }
 
     if (_token == LBRACK || _token == BYTEOP)
     {
-        if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST) && !(sym->flags & SYM_MEMORY))
+        if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST))
             compiler_error("bad subscript", sym->name);
     }
 
@@ -2558,15 +2609,11 @@ symbol_t *address(int level, int *byte_ptr)
         expect(RBRACK, "']'");
         scan();
 
-        // Handle the special mem variable
-        if (sym && sym->flags & SYM_MEMORY)
-            code_opcode_value(OP_INDXB, 0);
-        else
-            code_opcode_value(OP_INDEX, 0);
+        code_opcode_value(OP_INDEX, 0);
 
         sym = NULL;
 
-        if (_token == LBRACK || _token == BYTEOP || level == 0)
+        if (_token == LBRACK || _token == BYTEOP || (level == 0 && _token != INC))
             code_opcode_value(OP_DEREF, 0);
     }
 
@@ -2578,11 +2625,13 @@ symbol_t *address(int level, int *byte_ptr)
         sym = NULL;
         code_opcode_value(OP_INDXB, 0);
 
-        if (level == 0)
+        if (level == 0 && _token != INC)
             code_opcode_value(OP_DREFB, 0);
     }
     return sym;
 }
+
+void peek_statement(int opcode);
 
 void factor(void)
 {
@@ -2600,19 +2649,26 @@ void factor(void)
     {
         y = address(0, &b);
 
-        if (LPAREN == _token)
+        if (_token == LPAREN)
+        {
             function_call(y);
+        }
+        else if (_token == INC)
+        {
+            code_opcode(OP_INC);
+            scan();
+        }
     }
     else if (_token == STRING)
     {
         spill();
-        code_opcode_value(OP_LDADDR, make_string(_token_str) + DATA_VADDR);
+        code_opcode_value(OP_LDADDR, make_string(_token_str) + _options->data_start_address);
         scan();
     }
     else if (_token == LBRACK)
     {
         spill();
-        code_opcode_value(OP_LDADDR, make_table() + DATA_VADDR);
+        code_opcode_value(OP_LDADDR, make_table() + _options->data_start_address);
     }
     else if (_token == ADDROF)
     {
@@ -2638,6 +2694,7 @@ void factor(void)
         op = _token_op_id;
         if (_token_op_id != _minus_op)
             compiler_error("syntax error", _token_str);
+
         scan();
         factor();
         code_opcode(OP_NEG);
@@ -2655,6 +2712,18 @@ void factor(void)
         expression(0);
         expect_right_paren();
     }
+    else if (_token == KPEEK8)
+    {
+        peek_statement(OP_PEEK8);
+    }
+    else if (_token == KPEEK16)
+    {
+        peek_statement(OP_PEEK16);
+    }
+    else if (_token == KPEEK32)
+    {
+        peek_statement(OP_PEEK32);
+    }
     else
     {
         compiler_error("syntax error", _token_str);
@@ -2664,14 +2733,7 @@ void factor(void)
 int emitop(int *operator_stack, int stack_ptr)
 {
     int op = operator_stack[stack_ptr - 1];
-
-    // TODO: Need to reenable this
-    //if (op == _div_op || op == _mul_op || op == _mod_op)
-    //    generate(_operators[op].code, op == _mul_op ? _mul32_routine_address : _div32_routine_address);
-    //else
-    //    generate(_operators[op].code, 0);
     code_opcode(_operators[op].code);
-
 
     return stack_ptr - 1;
 }
@@ -2878,6 +2940,30 @@ void loop_statement(void)
     resolve_jump(code_opcode(OP_JUMPBACK), jump_target);
 }
 
+void peek_statement(int opcode)
+{
+    scan();
+    expect_left_paren();
+    expression(0);
+    expect_right_paren();
+    code_opcode(opcode);
+}
+
+void poke_statement(int opcode)
+{
+    scan();
+    expect_left_paren();
+    expression(0);
+
+    if (_token != COMMA)
+        compiler_error("expected comma between arguments in poke", NULL);
+    scan();
+
+    expression(0);
+    expect_right_paren();
+    code_opcode(opcode);
+}
+
 void assignment_or_call(void)
 {
     int byte_addr;
@@ -2909,6 +2995,19 @@ void assignment_or_call(void)
             store(sym);
         }
     }
+    else if (_token == INC)
+    {
+        if (sym != NULL)
+        {
+            if (sym->flags & SYM_GLOBF)
+                code_symbol(OP_LDADDR, sym);
+            else
+                code_opcode_value(OP_LDLOCALREF, sym->value);
+        }
+
+        code_opcode(OP_INC);
+        scan();
+    }
     else
     {
         compiler_error("syntax error", _token_str);
@@ -2937,6 +3036,24 @@ void statement(void)
         case KWHILE:
             while_statement();
             break;
+        case KPEEK8:
+            peek_statement(OP_PEEK8);
+            break;
+        case KPEEK16:
+            peek_statement(OP_PEEK16);
+            break;
+        case KPEEK32:
+            peek_statement(OP_PEEK32);
+            break;
+        case KPOKE8:
+            poke_statement(OP_POKE8);
+            break;
+        case KPOKE16:
+            poke_statement(OP_POKE16);
+            break;
+        case KPOKE32:
+            poke_statement(OP_POKE32);
+            break;
         case BLOCK_START:
             block_statement();
             break;
@@ -2957,7 +3074,7 @@ void block_statement(void)
     int old_symbol_table_ptr = _symbol_table_ptr;
     int old_local_frame_ptr = _local_frame_ptr;
 
-    while (KVAR == _token || KCONST == _token || KSTRUCT == _token)
+    while (_token == KVAR || _token == KCONST || _token == KSTRUCT)
         declaration(0);
 
     while (_token != BLOCK_END)
@@ -2976,16 +3093,13 @@ void block_statement(void)
 
 void program(void)
 {
-    // Reset important pointers
-    _relocation_ptr = 0;
-
     int i;
 
     scan();
     while (_token == KVAR || _token == KCONST || _token == KFUNC || _token == KDECL || _token == KSTRUCT)
         declaration(SYM_GLOBF);
 
-    for (i = 0; i < _symbol_table_ptr; i++)
+    for (i = 0; i < _symbol_table_ptr; i++) 
     {
         if (_symbol_table[i].flags & SYM_DECLARATION && _symbol_table[i].value)
             compiler_error("undefined function", _symbol_table[i].name);
@@ -2998,9 +3112,40 @@ void resolve_main(void)
     if (main == NULL)
         compiler_error("missing main entry point", NULL);
 
-    _start_location = _text_buffer_ptr + TEXT_VADDR;
+    _start_location = _text_buffer_ptr + _options->text_start_address;
     code_symbol(OP_CALL, main);
     code_opcode_value(OP_HALT, 0);
+}
+
+void embed_data_files(void)
+{
+    for (int i = 0; i < _options->embed_files_count; ++i)
+    {
+        koda_embed_t *embed = &_options->embed_files[i];
+
+        // Create global variable pointing to the embedded data
+        add(embed->name, SYM_GLOBF, _data_buffer_ptr + _options->data_start_address);
+        data_word(_data_buffer_ptr + _options->data_start_address + 4);
+
+#if PLATFORM_WIN
+        // Embed the actual data
+        FILE *file = fopen(embed->source_file, "r");
+        if (file == NULL)
+            compiler_error("could not open file for embedding", embed->source_file);
+
+        // Read the entire file into the data buffer
+        int len = fread(_data_buffer + _data_buffer_ptr, 1, _options->data_size - _data_buffer_ptr, file);
+        fclose(file);
+
+        _data_buffer_ptr += len;
+        if (_data_buffer_ptr >= _options->data_size)
+            compiler_error("data segment exhaused, the embedded file is to large", embed->source_file);
+#endif  
+        // Add a constant containing the size of the data
+        char buffer[64];
+        snprintf(buffer, 64, "%s_len", embed->name);
+        add(buffer, SYM_CONST, len);      
+    }
 }
 
 /**
@@ -3013,7 +3158,6 @@ void init(void)
     _data_buffer_ptr = 0;
     _symbol_table_ptr = 0;
 
-
     _code_start = alloc_code();
     _current_code = _code_start;
     _current_code->opcode = OP_INIT;
@@ -3021,36 +3165,20 @@ void init(void)
     code_t *jmp = code_opcode(OP_JUMPFWD);
     
     // Special variables used by the standard library
-    if (_options->no_stdlib == 0)
-    {
-        // Heap allocation ptr
-        symbol_t *sym = add("__heap_ptr", SYM_GLOBF, 0);
-        sym->code = code_symbol_value(OP_WRITE_32, sym, HEAP_START);
+    symbol_t *sym = add("__heap_ptr", SYM_GLOBF, 0);
+    sym->code = code_symbol_value(OP_WRITE_32, sym, HEAP_START);
 
-        // 32 byte buffer
-        sym = add("__buffer", SYM_GLOBF, 0);
-        sym->code = code_symbol_value(OP_ALLOC_MEM, sym, 32);
-    }
+    sym = add("__buffer", SYM_GLOBF, 0);
+    sym->code = code_symbol_value(OP_ALLOC_MEM, sym, 32);
 
     // Add special math routines
-    //_mul32_routine_address = _text_buffer_ptr + TEXT_VADDR;
-    //emit_code(CG_MUL32, 0);
-    {
-        symbol_t *mul32 = add("__mul32", SYM_GLOBF, 0);
-        _mul32_code = code_asm(mul32, CG_MUL32);
+    symbol_t *mul32 = add("__mul32", SYM_GLOBF, 0);
+    _mul32_code = code_asm(mul32, CG_MUL32);
 
-        symbol_t *div32 = add("__div32", SYM_GLOBF, 0);
-        _div32_code = code_asm(div32, CG_DIV32);
-    }
+    symbol_t *div32 = add("__div32", SYM_GLOBF, 0);
+    _div32_code = code_asm(div32, CG_DIV32);
 
-
-
-    //_div32_routine_address = _text_buffer_ptr + TEXT_VADDR;
-    //emit_code(CG_DIV32, 0);
-
-    //generate(OP_RESOLV, 0);
     resolve_jump(jmp, code_opcode(OP_JUMP_TARGET));
-
 
     find_operator("="); _equal_op = _token_op_id;
     find_operator("-"); _minus_op = _token_op_id;
@@ -3065,8 +3193,12 @@ void init(void)
     builtin("syscall3", 4, CG_FUNC_SYSCALL3);
     builtin("memscan", 3, CG_FUNC_MEMSCAN);
     builtin("memcopy", 3, CG_FUNC_MEMCOPY);
+    builtin("memset", 3, CG_FUNC_MEMSET);
+    builtin("min", 2, CG_FUNC_MIN);
+    builtin("max", 2, CG_FUNC_MAX);
 
-    add("mem", SYM_CONST | SYM_MEMORY, 0);     // special memory access, set to -DATA_VADDR to compensate for LDGLOBAL that adds DATA_VADDR
+    add("true", SYM_CONST, -1);
+    add("false", SYM_CONST, 0);
     add("HEAP_START", SYM_CONST, HEAP_START);
     add("HEAP_END", SYM_CONST, HEAP_END - INITIAL_STACK_SIZE);
     add("BYTE", SYM_CONST, 1);
@@ -3079,37 +3211,34 @@ int koda_compile(koda_compiler_options_t *options)
     _options = options;
 
 #if PLATFORM_WIN
-    _text_buffer = malloc(TEXT_SIZE);
-    _data_buffer = malloc(DATA_SIZE);
+    _text_buffer = malloc(_options->text_size);
+    _data_buffer = malloc(_options->data_size);
     _string_table = malloc(STRING_TABLE_SIZE);
     _symbol_table = malloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
-    _relocation_table = malloc(sizeof(relocation_t) * RELOCATION_SIZE);
 #else
     void *current_heap_pos = heap_position();
 
-    _text_buffer = heap_alloc(TEXT_SIZE);
-    _data_buffer = heap_alloc(DATA_SIZE);
+    _text_buffer = heap_alloc(_options->text_size);
+    _data_buffer = heap_alloc(_options->data_size);
     _string_table = heap_alloc(STRING_TABLE_SIZE);
     _symbol_table = heap_alloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
-    _relocation_table = heap_alloc(sizeof(relocation_t) * RELOCATION_SIZE);
 #endif   
 
     init();
 
-    if (_options->no_stdlib == 0)
-    {
-        // Compile stdlib
-        read_stdlib_source();
-        program();
-        resolve();
-    }
+    // TODO: Use long jump here so we can have the koda_compile(...) function return on error, instead of exiting the program.
+    if (_options->embed_files_count > 0)
+        embed_data_files();
+
+    // Compile stdlib
+    read_stdlib_source();
+    program();
 
     // Compile all input files
     for (int i = 0; i < options->input_files_count; ++i)
     {
         read_input_source(options->input_files[i]);
         program();
-        resolve();
     }
 
     resolve_main();
@@ -3131,7 +3260,9 @@ int koda_compile(koda_compiler_options_t *options)
 
     if (options->debug)
     {
+#if PLATFORM_WIN        
         printf("\nCODE:\n");
+#endif        
         int optimized_instruction_count = 0;
 
         for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -3140,20 +3271,24 @@ int koda_compile(koda_compiler_options_t *options)
         for (code_t *it = _code_start; it != NULL; it = it->next)
             print_code(it);
 
+#if PLATFORM_WIN
         printf("\nSYMBOLS:\n");
+#endif        
         for (int i = 0; i < _symbol_table_ptr; ++i)
         {
             symbol_t *sym = &_symbol_table[i];
             if (sym->used)
             {
+#if PLATFORM_WIN                
                 printf("  %06X  %s (%02X)\n", sym->value, sym->name, sym->flags);
+#endif                
             }
         }
 
 #if PLATFORM_WIN
         printf("\nSTATISTICS:\n");
-        printf("          Code usage: %d / %dkb\n", _text_buffer_ptr / 1024, TEXT_SIZE / 1024);
-        printf("          Data usage: %d / %dkb\n", _data_buffer_ptr / 1024, DATA_SIZE / 1024);
+        printf("          Code usage: %d / %dkb\n", _text_buffer_ptr / 1024, _options->text_size / 1024);
+        printf("          Data usage: %d / %dkb\n", _data_buffer_ptr / 1024, _options->data_size / 1024);
         printf("  Symbol table usage: %d / %d\n", _symbol_table_ptr, SYMBOL_TABLE_SIZE);
         printf("  String table usage: %d / %d\n", _string_table_ptr, STRING_TABLE_SIZE);
         printf("       Optimizations: %d -> %d\n", start_instruction_count, optimized_instruction_count);
@@ -3169,7 +3304,6 @@ int koda_compile(koda_compiler_options_t *options)
     free(_data_buffer);
     free(_string_table);
     free(_symbol_table);
-    free(_relocation_table);
 #else    
     heap_rewind(current_heap_pos);
 #endif    
