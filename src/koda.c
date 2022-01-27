@@ -220,6 +220,8 @@ enum {
     OP_POKE16,
     OP_POKE32,
 
+    // TODO: Add special OP_PEEK8/16/32_CONSTANT opcode
+
     // Special opcodes used internally for optimization
     OP_ASM,                 // We have a blob of assembly code
     OP_JUMP_TARGET,
@@ -1055,6 +1057,11 @@ void optimize_fix_load_value_xxx_constant(void)
         else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_DEREF)
         {
             it->opcode = OP_LDLOCAL;
+        }
+        else if (it->opcode == OP_PUSH && it->next->opcode == OP_ADD_CONSTANT)
+        {
+            it = it->prev;
+            remove_next(it);
         }
     }    
 }
@@ -2962,6 +2969,8 @@ void poke_statement(int opcode)
     expression(0);
     expect_right_paren();
     code_opcode(opcode);
+
+    clear();
 }
 
 void assignment_or_call(void)
