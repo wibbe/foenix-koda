@@ -71,18 +71,19 @@
 #define CG_JMPTRUE          "4A806600,>"
 #define CG_INCGLOB          "52B9,a"
 #define CG_INCLOCL          "52AE,w"
-#define CG_INC              "2A40221552952001"
+#define CG_INC              "2A405295"
+#define CG_DEC              "2A405395"
 #define CG_PEEK8            "2A4070001015"
 #define CG_PEEK16           "2A4070003015"
-#define CG_PEEK32           "2A402010"
+#define CG_PEEK32           "2A402015"
 #define CG_POKE8            "2A5F1A80"
 #define CG_POKE16           "2A5F3A80"
 #define CG_POKE32           "2A5F2A80"
 
-#define CG_FUNC_SYSCALL0    "2F002F0E202F000C4E4F2C5F201F4E75"
-#define CG_FUNC_SYSCALL1    "2F002F0E222F000C202F00104E4F2C5F201F4E75"
-#define CG_FUNC_SYSCALL2    "2F002F0E242F000C222F0010202F00144E4F2C5F201F4E75"
-#define CG_FUNC_SYSCALL3    "2F002F0E262F000C242F0010222F0014202F00184E4F2C5F201F4E75"
+#define CG_FUNC_SYSCALL0    "202F00044E4F4E75"
+#define CG_FUNC_SYSCALL1    "222F0004202F00084E4F4E75"
+#define CG_FUNC_SYSCALL2    "242F0004222F0008202F000C4E4F4E75"
+#define CG_FUNC_SYSCALL3    "262F0004242F0008222F000C202F00104E4F4E75"
 #define CG_FUNC_MEMSCAN     "222F0004242F0008206F000C22482448D5C1B5C9671276001619B483670260F22009908853804E7570FF4E75"
 #define CG_FUNC_MEMCOPY     "206F000C226F0008222F000410D951C9FFFC4E75"
 #define CG_FUNC_MEMSET      "222F0004242F0008206F000C10C251C9FFFC4E75"
@@ -120,73 +121,72 @@ enum {
 
 enum {
     ENDFILE = -1,
-    SYMBOL = 100, 
-    INTEGER, 
-    STRING,
-    ADDROF = 200, 
-    ASSIGN, 
-    BINOP, 
-    BYTEOP, 
-    COLON, 
-    COMMA, 
-    COND,
-    CONJ, 
-    DISJ,
-    LBRACK, 
-    LPAREN, 
-    RBRACK, 
-    RPAREN, 
-    UNOP,
-    INC,
-    BLOCK_START, 
-    BLOCK_END,
-    KCONST, 
-    KDECL, 
-    KELSE,
-    KFUNC,
-    KHALT, 
-    KIF,
-    KPEEK8,
-    KPEEK16,
-    KPEEK32,
-    KPOKE8,
-    KPOKE16,
-    KPOKE32,
-    KLEAVE, 
-    KLOOP, 
-    KRETURN, 
-    KSTRUCT, 
-    KVAR,
-    KWHILE
+    TOKEN_SYMBOL = 100, 
+    TOKEN_INTEGER, 
+    TOKEN_STRING,
+    TOKEN_ADDROF = 200, 
+    TOKEN_ASSIGN, 
+    TOKEN_BINOP, 
+    TOKEN_BYTEOP, 
+    TOKEN_COLON, 
+    TOKEN_COMMA, 
+    TOKEN_COND,
+    TOKEN_CONJ, 
+    TOKEN_DISJ,
+    TOKEN_LEFT_BRACKET, 
+    TOKEN_LEFT_PAREN, 
+    TOKEN_RIGHT_BRACKET, 
+    TOKEN_RIGHT_PAREN, 
+    TOKEN_UNOP,
+    TOKEN_BLOCK_START, 
+    TOKEN_BLOCK_END,
+    TOKEN_KEYWORD_CONST,
+    TOKEN_KEYWORD_DEC, 
+    TOKEN_KEYWORD_DECL, 
+    TOKEN_KEYWORD_ELSE,
+    TOKEN_KEYWORD_FUNC,
+    TOKEN_KEYWORD_HALT, 
+    TOKEN_KEYWORD_INC,
+    TOKEN_KEYWORD_IF,
+    TOKEN_KEYWORD_PEEK8,
+    TOKEN_KEYWORD_PEEK16,
+    TOKEN_KEYWORD_PEEK32,
+    TOKEN_KEYWORD_POKE8,
+    TOKEN_KEYWORD_POKE16,
+    TOKEN_KEYWORD_POKE32,
+    TOKEN_KEYWORD_LEAVE, 
+    TOKEN_KEYWORD_LOOP, 
+    TOKEN_KEYWORD_RETURN, 
+    TOKEN_KEYWORD_STRUCT, 
+    TOKEN_KEYWORD_VAR,
+    TOKEN_KEYWORD_WHILE
 };
 
 enum {
     OP_NONE,
     OP_INIT,
     OP_PUSH,
-    OP_LDVAL,
-    OP_LDADDR,
-    OP_LDLOCALREF,
-    OP_LDGLOBAL,
-    OP_LDLOCAL,
+    OP_LOAD_VALUE,
+    OP_LOAD_GLOBAL_ADDR,
+    OP_LOAD_LOCAL_ADDR,
+    OP_LOAD_GLOBAL,
+    OP_LOAD_LOCAL,
     OP_CLEAR,
-    OP_STGLOB,
-    OP_STLOCL,
-    OP_STINDR,
-    OP_STINDB,
+    OP_STORE_GLOBAL,
+    OP_STORE_LOCAL,
+    OP_STORE_INDIRECT_WORD,
+    OP_STORE_INDIRECT_BYTE,
     OP_ALLOC,
     OP_DEALLOC,
-    OP_LOCLVEC,
-    OP_GLOBVEC,
+    OP_LOCAL_VEC,
+    OP_GLOBAL_VEC,
     OP_HALT,
-    OP_INDEX,
-    OP_DEREF,
-    OP_INDXB,
-    OP_DREFB,
+    OP_INDEX_WORD,
+    OP_INDEX_BYTE,
+    OP_DEREF_WORD,
+    OP_DEREF_BYTE,
     OP_CALL,
     OP_CALL_INDIRECT,
-    OP_JUMPFWD,
-    OP_JUMPBACK,
     OP_ENTER,
     OP_EXIT,
     OP_NEG,
@@ -208,11 +208,12 @@ enum {
     OP_LE,
     OP_GT,
     OP_GE,
-    OP_JMPFALSE,
-    OP_JMPTRUE,
-    OP_INCGLOB,
-    OP_INCLOCL,
+    OP_JUMP_FWD,
+    OP_JUMP_BACK,
+    OP_JUMP_FALSE,
+    OP_JUMP_TRUE,
     OP_INC,
+    OP_DEC,
     OP_PEEK8,
     OP_PEEK16,
     OP_PEEK32,
@@ -243,29 +244,29 @@ enum {
 char *_opcode_names[OP_COUNT] = {
     [OP_INIT] = "OP_INIT",
     [OP_PUSH] = "OP_PUSH",
-    [OP_LDVAL] = "OP_LDVAL",
-    [OP_LDADDR] = "OP_LDADDR",
-    [OP_LDLOCALREF] = "OP_LDLOCALREF",
-    [OP_LDGLOBAL] = "OP_LDGLOBAL",
-    [OP_LDLOCAL] = "OP_LDLOCAL",
+    [OP_LOAD_VALUE] = "OP_LOAD_VALUE",
+    [OP_LOAD_GLOBAL_ADDR] = "OP_LOAD_GLOBAL_ADDR",
+    [OP_LOAD_LOCAL_ADDR] = "OP_LOAD_LOCAL_ADDR",
+    [OP_LOAD_GLOBAL] = "OP_LOAD_GLOBAL",
+    [OP_LOAD_LOCAL] = "OP_LOAD_LOCAL",
     [OP_CLEAR] = "OP_CLEAR",
-    [OP_STGLOB] = "OP_STGLOB",
-    [OP_STLOCL] = "OP_STLOCL",
-    [OP_STINDR] = "OP_STINDR",
-    [OP_STINDB] = "OP_STINDB",
+    [OP_STORE_GLOBAL] = "OP_STORE_GLOBAL",
+    [OP_STORE_LOCAL] = "OP_STORE_LOCAL",
+    [OP_STORE_INDIRECT_WORD] = "OP_STORE_INDIRECT_WORD",
+    [OP_STORE_INDIRECT_BYTE] = "OP_STORE_INDIRECT_BYTE",
     [OP_ALLOC] = "OP_ALLOC",
     [OP_DEALLOC] = "OP_DEALLOC",
-    [OP_LOCLVEC] = "OP_LOCLVEC",
-    [OP_GLOBVEC] = "OP_GLOBVEC",
+    [OP_LOCAL_VEC] = "OP_LOCAL_VEC",
+    [OP_GLOBAL_VEC] = "OP_GLOBAL_VEC",
     [OP_HALT] = "OP_HALT",
-    [OP_INDEX] = "OP_INDEX",
-    [OP_DEREF] = "OP_DEREF",
-    [OP_INDXB] = "OP_INDXB",
-    [OP_DREFB] = "OP_DREFB",
+    [OP_INDEX_WORD] = "OP_INDEX_WORD",
+    [OP_DEREF_WORD] = "OP_DEREF_WORD",
+    [OP_INDEX_BYTE] = "OP_INDEX_BYTE",
+    [OP_DEREF_BYTE] = "OP_DEREF_BYTE",
     [OP_CALL] = "OP_CALL",
     [OP_CALL_INDIRECT] = "OP_CALL_INDIRECT",
-    [OP_JUMPFWD] = "OP_JUMPFWD",
-    [OP_JUMPBACK] = "OP_JUMPBACK",
+    [OP_JUMP_FWD] = "OP_JUMP_FWD",
+    [OP_JUMP_BACK] = "OP_JUMP_BACK",
     [OP_ENTER] = "OP_ENTER",
     [OP_EXIT] = "OP_EXIT",
     [OP_NEG] = "OP_NEG",
@@ -287,11 +288,10 @@ char *_opcode_names[OP_COUNT] = {
     [OP_LE] = "OP_LE",
     [OP_GT] = "OP_GT",
     [OP_GE] = "OP_GE",
-    [OP_JMPFALSE] = "OP_JMPFALSE",
-    [OP_JMPTRUE] = "OP_JMPTRUE",
-    [OP_INCGLOB] = "OP_INCGLOB",
-    [OP_INCLOCL] = "OP_INCLOCL",
+    [OP_JUMP_FALSE] = "OP_JUMP_FALSE",
+    [OP_JUMP_TRUE] = "OP_JUMP_TRUE",
     [OP_INC] = "OP_INC",
+    [OP_DEC] = "OP_DEC",
     [OP_PEEK8] = "OP_PEEK8",
     [OP_PEEK16] = "OP_PEEK16",
     [OP_PEEK32] = "OP_PEEK32",
@@ -314,34 +314,34 @@ char *_opcode_names[OP_COUNT] = {
 char *_opcode_to_machine_code[OP_COUNT] = {
     [OP_INIT] = CG_INIT,
     [OP_PUSH] = CG_PUSH,
-    [OP_LDVAL] = CG_LDVAL,
+    [OP_LOAD_VALUE] = CG_LDVAL,
     [OP_LDVAL_STACK] = CG_LDVAL_SP,
-    [OP_LDADDR] = CG_LDADDR,
+    [OP_LOAD_GLOBAL_ADDR] = CG_LDADDR,
     [OP_LDADDR_STACK] = CG_LDADDR_SP,
-    [OP_LDLOCALREF] = CG_LDLOCALREF,
-    [OP_LDGLOBAL] = CG_LDGLOBAL,
+    [OP_LOAD_LOCAL_ADDR] = CG_LDLOCALREF,
+    [OP_LOAD_GLOBAL] = CG_LDGLOBAL,
     [OP_LDGLOBAL_STACK] = CG_LDGLOBAL_SP,
-    [OP_LDLOCAL] = CG_LDLOCAL,
+    [OP_LOAD_LOCAL] = CG_LDLOCAL,
     [OP_LDLOCAL_STACK] = CG_LDLOCAL_SP,
     [OP_CLEAR] = CG_CLEAR,
-    [OP_STGLOB] = CG_STGLOB,
-    [OP_STLOCL] = CG_STLOCL,
-    [OP_STINDR] = CG_STINDR,
-    [OP_STINDB] = CG_STINDB,
+    [OP_STORE_GLOBAL] = CG_STGLOB,
+    [OP_STORE_LOCAL] = CG_STLOCL,
+    [OP_STORE_INDIRECT_WORD] = CG_STINDR,
+    [OP_STORE_INDIRECT_BYTE] = CG_STINDB,
     [OP_ALLOC] = CG_ALLOC,
     [OP_DEALLOC] = CG_DEALLOC,
-    [OP_LOCLVEC] = CG_LOCLVEC,
-    [OP_GLOBVEC] = CG_GLOBVEC,
+    [OP_LOCAL_VEC] = CG_LOCLVEC,
+    [OP_GLOBAL_VEC] = CG_GLOBVEC,
     [OP_HALT] = CG_HALT,
-    [OP_INDEX] = CG_INDEX,
+    [OP_INDEX_WORD] = CG_INDEX,
     [OP_INDEX_CONSTANT] = CG_INDEX_CONSTANT,
-    [OP_DEREF] = CG_DEREF,
-    [OP_INDXB] = CG_INDXB,
-    [OP_DREFB] = CG_DREFB,
+    [OP_DEREF_WORD] = CG_DEREF,
+    [OP_INDEX_BYTE] = CG_INDXB,
+    [OP_DEREF_BYTE] = CG_DREFB,
     [OP_CALL] = CG_CALL,
     [OP_CALL_INDIRECT] = CG_CALL_INDIRECT,
-    [OP_JUMPFWD] = CG_JUMPFWD,
-    [OP_JUMPBACK] = CG_JUMPBACK,
+    [OP_JUMP_FWD] = CG_JUMPFWD,
+    [OP_JUMP_BACK] = CG_JUMPBACK,
     [OP_JUMP_TARGET] = CG_JUMP_TARGET,
     [OP_ENTER] = CG_ENTER,
     [OP_EXIT] = CG_EXIT,
@@ -365,11 +365,10 @@ char *_opcode_to_machine_code[OP_COUNT] = {
     [OP_LE] = CG_LE,
     [OP_GT] = CG_GT,
     [OP_GE] = CG_GE,
-    [OP_JMPFALSE] = CG_JMPFALSE,
-    [OP_JMPTRUE] = CG_JMPTRUE,
-    [OP_INCGLOB] = CG_INCGLOB,
-    [OP_INCLOCL] = CG_INCLOCL,
-    [OP_INC] = CG_INC,    
+    [OP_JUMP_FALSE] = CG_JMPFALSE,
+    [OP_JUMP_TRUE] = CG_JMPTRUE,
+    [OP_INC] = CG_INC,
+    [OP_DEC] = CG_DEC,
     [OP_PEEK8] = CG_PEEK8,
     [OP_PEEK16] = CG_PEEK16,
     [OP_PEEK32] = CG_PEEK32,
@@ -409,12 +408,6 @@ struct symbol_t {
     bool used;
     code_t *code;
 };
-
-typedef struct relocation_t {
-    int addr;
-    int seg;
-} relocation_t;
-
 
 
 char *_program_source_file;
@@ -600,10 +593,10 @@ void print_code(code_t *code)
 
     switch (code->opcode)
     {
-        case OP_JUMPFWD:
-        case OP_JUMPBACK:
-        case OP_JMPTRUE:
-        case OP_JMPFALSE:
+        case OP_JUMP_FWD:
+        case OP_JUMP_BACK:
+        case OP_JUMP_TRUE:
+        case OP_JUMP_FALSE:
             printf("%s%06X\n", buffer, code->code->position);
             break;
 
@@ -631,7 +624,7 @@ void print_code(code_t *code)
             printf("%s%d\n", buffer, code->value);
             break;
 
-        case OP_LDADDR:
+        case OP_LOAD_GLOBAL_ADDR:
         case OP_LDADDR_STACK:
             if (code->symbol != NULL)
                 printf("%s%s\n", buffer, code->symbol->name);
@@ -639,14 +632,14 @@ void print_code(code_t *code)
                 printf("%s%06X\n", buffer, code->value);
             break;
 
-        case OP_LDLOCALREF:
-        case OP_LDGLOBAL:
+        case OP_LOAD_LOCAL_ADDR:
+        case OP_LOAD_GLOBAL:
         case OP_LDGLOBAL_STACK:
-        case OP_LDLOCAL:
+        case OP_LOAD_LOCAL:
         case OP_LDLOCAL_STACK:
-        case OP_STGLOB:
-        case OP_STLOCL:
-        case OP_GLOBVEC:
+        case OP_STORE_GLOBAL:
+        case OP_STORE_LOCAL:
+        case OP_GLOBAL_VEC:
             if (code->symbol != NULL)
                 printf("%s%s\n", buffer, code->symbol->name);
             else
@@ -709,21 +702,21 @@ void optimize_remove_dead_code(void)
 
         switch (pc->opcode)
         {
-            case OP_JUMPFWD:
+            case OP_JUMP_FWD:
                 if (conditional_jump_count[call_stack_ptr] == 0)
                     pc = pc->code;
                 else
                     pc = pc->next;
                 break;
 
-            case OP_JMPFALSE:
-            case OP_JMPTRUE:
+            case OP_JUMP_FALSE:
+            case OP_JUMP_TRUE:
                 conditional_jump_count[call_stack_ptr]++;
                 pc = pc->next;
                 break;
 
             case OP_JUMP_TARGET:
-                if (pc->code->opcode == OP_JMPTRUE || pc->code->opcode == OP_JMPFALSE)
+                if (pc->code->opcode == OP_JUMP_TRUE || pc->code->opcode == OP_JUMP_FALSE)
                     if (conditional_jump_count[call_stack_ptr] > 0)
                         conditional_jump_count[call_stack_ptr]--;
                 pc = pc->next;
@@ -740,11 +733,11 @@ void optimize_remove_dead_code(void)
                 }
                 break;
 
-            case OP_STGLOB:
-            case OP_GLOBVEC:
-            case OP_LDADDR:
+            case OP_STORE_GLOBAL:
+            case OP_GLOBAL_VEC:
+            case OP_LOAD_GLOBAL_ADDR:
             case OP_LDADDR_STACK:            
-            case OP_LDGLOBAL:
+            case OP_LOAD_GLOBAL:
             case OP_LDGLOBAL_STACK:
                 if (pc->symbol != NULL)
                 {   
@@ -845,22 +838,22 @@ void optimize_load_push(void)
         if (!has_next(it))
             continue;
 
-        if (it->opcode == OP_LDVAL && it->next->opcode == OP_PUSH)
+        if (it->opcode == OP_LOAD_VALUE && it->next->opcode == OP_PUSH)
         {
             it->opcode = OP_LDVAL_STACK;
             remove_next(it);
         }
-        else if (it->opcode == OP_LDGLOBAL && it->next->opcode == OP_PUSH)
+        else if (it->opcode == OP_LOAD_GLOBAL && it->next->opcode == OP_PUSH)
         {
             it->opcode = OP_LDGLOBAL_STACK;
             remove_next(it);
         }
-        else if (it->opcode == OP_LDLOCAL && it->next->opcode == OP_PUSH)
+        else if (it->opcode == OP_LOAD_LOCAL && it->next->opcode == OP_PUSH)
         {
             it->opcode = OP_LDLOCAL_STACK;
             remove_next(it);
         }
-        else if (it->opcode == OP_LDADDR && it->next->opcode == OP_PUSH)
+        else if (it->opcode == OP_LOAD_GLOBAL_ADDR && it->next->opcode == OP_PUSH)
         {
             it->opcode = OP_LDADDR_STACK;
             remove_next(it);
@@ -876,7 +869,7 @@ void optimize_load_value_add(void)
         if (!has_next(it))
             continue;
 
-        if (it->opcode == OP_LDVAL && it->next->opcode == OP_ADD)
+        if (it->opcode == OP_LOAD_VALUE && it->next->opcode == OP_ADD)
         {
             it->opcode = OP_ADD_CONSTANT;
             remove_next(it);
@@ -930,7 +923,7 @@ void optimize_jumps(void)
         if (!has_next(it))
             continue;
 
-        if (it->opcode == OP_JUMP_TARGET && it->next->opcode == OP_JUMPFWD)
+        if (it->opcode == OP_JUMP_TARGET && it->next->opcode == OP_JUMP_FWD)
         {
             code_t *jump_source = it->code;
             code_t *next_jump_target = it->next->code;
@@ -955,7 +948,7 @@ void optimize_jumps(void)
             // Update it pointer
             it = prev;
         }
-        else if (it->opcode == OP_JUMPFWD && it->next->opcode == OP_JUMP_TARGET)
+        else if (it->opcode == OP_JUMP_FWD && it->next->opcode == OP_JUMP_TARGET)
         {   
             // Do we have a jump to the next instruction?
             if (it->code == it->next)
@@ -996,7 +989,7 @@ void optimize_load_value_index(void)
         if (!has_next(it))
             continue;
 
-        if (it->opcode == OP_LDVAL && it->next->opcode == OP_INDEX)
+        if (it->opcode == OP_LOAD_VALUE && it->next->opcode == OP_INDEX_WORD)
         {
             it->opcode = OP_INDEX_CONSTANT;
             // Update index value so it's correct
@@ -1036,27 +1029,31 @@ void optimize_fix_load_value_xxx_constant(void)
 
         if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
         {
-            it->opcode = OP_LDGLOBAL;
+            it->opcode = OP_LOAD_GLOBAL;
         }
         else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
         {
-            it->opcode = OP_LDLOCAL;
+            it->opcode = OP_LOAD_LOCAL;
+        }
+        else if (it->opcode == OP_LDADDR_STACK && it->next->opcode == OP_ADD_CONSTANT)
+        {
+            it->opcode = OP_LOAD_GLOBAL_ADDR;
         }
         else if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_INDEX_CONSTANT)
         {
-            it->opcode = OP_LDGLOBAL;
+            it->opcode = OP_LOAD_GLOBAL;
         }
         else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_INDEX_CONSTANT)
         {
-            it->opcode = OP_LDLOCAL;
+            it->opcode = OP_LOAD_LOCAL;
         }
-         else if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_DEREF)
+         else if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_DEREF_WORD)
         {
-            it->opcode = OP_LDGLOBAL;
+            it->opcode = OP_LOAD_GLOBAL;
         }
-        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_DEREF)
+        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_DEREF_WORD)
         {
-            it->opcode = OP_LDLOCAL;
+            it->opcode = OP_LOAD_LOCAL;
         }
         else if (it->opcode == OP_PUSH && it->next->opcode == OP_ADD_CONSTANT)
         {
@@ -1068,8 +1065,8 @@ void optimize_fix_load_value_xxx_constant(void)
 
 void optimize_code(void)
 {
-    // TODO: Add optimization for OP_STLOCL + OP_LDLOCL combinations
-    //       Add new opcode for OP_LDVAL + OP_STLOCL pair
+    // TODO: Add optimization for OP_STORE_LOCAL + OP_LDLOCL combinations
+    //       Add new opcode for OP_LOAD_VALUE + OP_STORE_LOCAL pair
     //       Divide and multiply by power of 2 should be rewritten as left/right shifts
     //       Remove unused local variables from functions
 
@@ -1093,11 +1090,11 @@ void mark_used_symbols(void)
     {
         switch (it->opcode)
         {
-            case OP_STGLOB:
-            case OP_GLOBVEC:
-            case OP_LDADDR:
+            case OP_STORE_GLOBAL:
+            case OP_GLOBAL_VEC:
+            case OP_LOAD_GLOBAL_ADDR:
             case OP_LDADDR_STACK:
-            case OP_LDGLOBAL:
+            case OP_LOAD_GLOBAL:
             case OP_LDGLOBAL_STACK:
                 if (it->symbol != NULL)
                     it->symbol->used = true;
@@ -1363,7 +1360,7 @@ void emit_code(code_t *code, char *machine_code)
             }
             else if (machine_code[1] == 'r')
             {
-                if (code->code->opcode == OP_JUMPFWD || code->code->opcode == OP_JMPTRUE || code->code->opcode == OP_JMPFALSE)
+                if (code->code->opcode == OP_JUMP_FWD || code->code->opcode == OP_JUMP_TRUE || code->code->opcode == OP_JUMP_FALSE)
                 {
                     int addr = code->code->position;
                     text_patch_short(addr, _text_buffer_ptr - addr);
@@ -1431,7 +1428,7 @@ void emit_m68k_machine_code(void)
                 emit_code(it, it->assembly);
                 break;
 
-            case OP_LDVAL:
+            case OP_LOAD_VALUE:
                 emit_load_value(it);
                 break;
 
@@ -1455,7 +1452,7 @@ void generate_m68k_machine_code(void)
 
 void builtin(char *name, int arity, char *code)
 {
-    code_t *jmp = code_opcode(OP_JUMPFWD);
+    code_t *jmp = code_opcode(OP_JUMP_FWD);
     symbol_t *func = add(name, SYM_GLOBF | SYM_FUNCTION | (arity << 8), 0);
     code_asm(func, code);
     resolve_jump(jmp, code_opcode(OP_JUMP_TARGET));
@@ -1768,37 +1765,36 @@ typedef struct operator_t {
 
 
 operator_t _operators[] = {
-    { 7, 1, "%",    BINOP,  OP_MOD      },
-    { 6, 1, "+",    BINOP,  OP_ADD      },
-    { 8, 2, "++",   INC,    0           },
-    { 7, 1, "*",    BINOP,  OP_MUL      },
-    { 0, 1, ",",    COMMA,  0           },
-    { 0, 1, "(",    LPAREN, 0           },
-    { 0, 1, ")",    RPAREN, 0           },
-    { 0, 1, "[",    LBRACK, 0           },
-    { 0, 1, "]",    RBRACK, 0           },
-    { 5, 1, "&",    BINOP,  OP_AND      },
-    { 1, 2, "&&",   DISJ,   0           },
-    { 6, 1, "-",    BINOP,  OP_SUB      },
-    { 5, 1, "^",    BINOP,  OP_XOR      },
-    { 0, 1, "@",    ADDROF, 0           },
-    { 5, 1, "|",    BINOP,  OP_OR       },
-    { 2, 2, "||",   CONJ,   0           },
-    { 0, 1, "!",    UNOP,   OP_LOGNOT   },
-    { 0, 1, "?",    COND,   0           },
-    { 7, 1, "/",    BINOP,  OP_DIV      },
-    { 0, 1, "~",    UNOP,   OP_INV      },
-    { 0, 1, ":",    COLON,  0           },
-    { 0, 2, "::",   BYTEOP, 0           },
-    { 3, 2, "!=",   BINOP,  OP_NEQ      },
-    { 4, 1, "<",    BINOP,  OP_LT       },
-    { 4, 2, "<=",   BINOP,  OP_LE       },
-    { 5, 2, "<<",   BINOP,  OP_SHL      },
-    { 4, 1, ">",    BINOP,  OP_GT       },
-    { 4, 2, ">=",   BINOP,  OP_GE       },
-    { 5, 2, ">>",   BINOP,  OP_SHR      },
-    { 0, 1, "=",    ASSIGN, 0           },
-    { 3, 2, "==",   BINOP,  OP_EQ       },
+    { 7, 1, "%",    TOKEN_BINOP,  OP_MOD      },
+    { 6, 1, "+",    TOKEN_BINOP,  OP_ADD      },
+    { 7, 1, "*",    TOKEN_BINOP,  OP_MUL      },
+    { 0, 1, ",",    TOKEN_COMMA,  0           },
+    { 0, 1, "(",    TOKEN_LEFT_PAREN, 0           },
+    { 0, 1, ")",    TOKEN_RIGHT_PAREN, 0           },
+    { 0, 1, "[",    TOKEN_LEFT_BRACKET, 0           },
+    { 0, 1, "]",    TOKEN_RIGHT_BRACKET, 0           },
+    { 5, 1, "&",    TOKEN_BINOP,  OP_AND      },
+    { 1, 2, "&&",   TOKEN_DISJ,   0           },
+    { 6, 1, "-",    TOKEN_BINOP,  OP_SUB      },
+    { 5, 1, "^",    TOKEN_BINOP,  OP_XOR      },
+    { 0, 1, "@",    TOKEN_ADDROF, 0           },
+    { 5, 1, "|",    TOKEN_BINOP,  OP_OR       },
+    { 2, 2, "||",   TOKEN_CONJ,   0           },
+    { 0, 1, "!",    TOKEN_UNOP,   OP_LOGNOT   },
+    { 0, 1, "?",    TOKEN_COND,   0           },
+    { 7, 1, "/",    TOKEN_BINOP,  OP_DIV      },
+    { 0, 1, "~",    TOKEN_UNOP,   OP_INV      },
+    { 0, 1, ":",    TOKEN_COLON,  0           },
+    { 0, 2, "::",   TOKEN_BYTEOP, 0           },
+    { 3, 2, "!=",   TOKEN_BINOP,  OP_NEQ      },
+    { 4, 1, "<",    TOKEN_BINOP,  OP_LT       },
+    { 4, 2, "<=",   TOKEN_BINOP,  OP_LE       },
+    { 5, 2, "<<",   TOKEN_BINOP,  OP_SHL      },
+    { 4, 1, ">",    TOKEN_BINOP,  OP_GT       },
+    { 4, 2, ">=",   TOKEN_BINOP,  OP_GE       },
+    { 5, 2, ">>",   TOKEN_BINOP,  OP_SHR      },
+    { 0, 1, "=",    TOKEN_ASSIGN, 0           },
+    { 3, 2, "==",   TOKEN_BINOP,  OP_EQ       },
     { 0, 0, NULL,   0,      0           }
 };
 
@@ -1837,46 +1833,48 @@ int find_keyword(char *str)
     switch (str[0])
     {
         case 'c':
-            if (!strcmp(str, "const")) return KCONST;
+            if (!strcmp(str, "const")) return TOKEN_KEYWORD_CONST;
             return 0;
         case 'd':
-            if (!strcmp(str, "decl")) return KDECL;
+            if (!strcmp(str, "dec")) return TOKEN_KEYWORD_DEC;
+            if (!strcmp(str, "decl")) return TOKEN_KEYWORD_DECL;
             return 0;
         case 'e':
-            if (!strcmp(str, "else")) return KELSE;
+            if (!strcmp(str, "else")) return TOKEN_KEYWORD_ELSE;
             return 0;
         case 'f':
-            if (!strcmp(str, "func")) return KFUNC;
+            if (!strcmp(str, "func")) return TOKEN_KEYWORD_FUNC;
             return 0;
         case 'h':
-            if (!strcmp(str, "halt")) return KHALT;
+            if (!strcmp(str, "halt")) return TOKEN_KEYWORD_HALT;
             return 0;
         case 'i':
-            if (!strcmp(str, "if")) return KIF;
+            if (!strcmp(str, "if")) return TOKEN_KEYWORD_IF;
+            if (!strcmp(str, "inc")) return TOKEN_KEYWORD_INC;
             return 0;
         case 'l':
-            if (!strcmp(str, "leave")) return KLEAVE;
-            if (!strcmp(str, "loop")) return KLOOP;
+            if (!strcmp(str, "leave")) return TOKEN_KEYWORD_LEAVE;
+            if (!strcmp(str, "loop")) return TOKEN_KEYWORD_LOOP;
             return 0;
         case 'p':
-            if (!strcmp(str, "peek8")) return KPEEK8;
-            if (!strcmp(str, "peek16")) return KPEEK16;
-            if (!strcmp(str, "peek32")) return KPEEK32;
-            if (!strcmp(str, "poke8")) return KPOKE8;
-            if (!strcmp(str, "poke16")) return KPOKE16;
-            if (!strcmp(str, "poke32")) return KPOKE32;
+            if (!strcmp(str, "peek8")) return TOKEN_KEYWORD_PEEK8;
+            if (!strcmp(str, "peek16")) return TOKEN_KEYWORD_PEEK16;
+            if (!strcmp(str, "peek32")) return TOKEN_KEYWORD_PEEK32;
+            if (!strcmp(str, "poke8")) return TOKEN_KEYWORD_POKE8;
+            if (!strcmp(str, "poke16")) return TOKEN_KEYWORD_POKE16;
+            if (!strcmp(str, "poke32")) return TOKEN_KEYWORD_POKE32;
             return 0;
         case 'r':
-            if (!strcmp(str, "return")) return KRETURN;
+            if (!strcmp(str, "return")) return TOKEN_KEYWORD_RETURN;
             return 0;
         case 's':
-            if (!strcmp(str, "struct")) return KSTRUCT;
+            if (!strcmp(str, "struct")) return TOKEN_KEYWORD_STRUCT;
             return 0;
         case 'v':
-            if (!strcmp(str, "var")) return KVAR;
+            if (!strcmp(str, "var")) return TOKEN_KEYWORD_VAR;
             return 0;
         case 'w':
-            if (!strcmp(str, "while")) return KWHILE;
+            if (!strcmp(str, "while")) return TOKEN_KEYWORD_WHILE;
             return 0;
     }
 
@@ -1954,9 +1952,9 @@ int scan_next_token(void)
     }
 
     if (ch == '{')
-        return BLOCK_START;
+        return TOKEN_BLOCK_START;
     if (ch == '}')
-        return BLOCK_END;
+        return TOKEN_BLOCK_END;
 
     if (isalpha(ch) || ch == '_')
     {
@@ -1981,7 +1979,7 @@ int scan_next_token(void)
         if (keyword != 0)
             return keyword;
 
-        return SYMBOL;
+        return TOKEN_SYMBOL;
     }
 
     if (isdigit(ch) || ch == '-')
@@ -2050,7 +2048,7 @@ int scan_next_token(void)
 
         reject();
         _token_value = _token_value * sign;
-        return INTEGER;
+        return TOKEN_INTEGER;
     }
 
     if (ch == '\'')
@@ -2058,7 +2056,7 @@ int scan_next_token(void)
         _token_value = read_encoded_char();
         if (read_char() != '\'')
             compiler_error("missing ''' in character", NULL);
-        return INTEGER;
+        return TOKEN_INTEGER;
     }
 
     if (ch == '"')
@@ -2076,7 +2074,7 @@ int scan_next_token(void)
             ch = read_encoded_char();
         }
         _token_str[i] = 0;
-        return STRING;
+        return TOKEN_STRING;
     }
 
     return scan_operator(ch);
@@ -2107,20 +2105,20 @@ void expect(int token, char *msg)
 
 void expect_equal_sign(void)
 {
-    if (_token != ASSIGN || _token_op_id != _equal_op)
+    if (_token != TOKEN_ASSIGN || _token_op_id != _equal_op)
         expect(0, "'='");
     scan();
 }
 
 void expect_left_paren(void)
 {
-    expect(LPAREN, "'('");
+    expect(TOKEN_LEFT_PAREN, "'('");
     scan();
 }
 
 void expect_right_paren(void)
 {
-    expect(RPAREN, "')'");
+    expect(TOKEN_RIGHT_PAREN, "')'");
     scan();
 }
 
@@ -2130,13 +2128,13 @@ int const_factor(void)
     int value;
     symbol_t *sym;
 
-    if (INTEGER == _token)
+    if (_token == TOKEN_INTEGER)
     {
         value = _token_value;
         scan();
         return value;
     }
-    if (SYMBOL == _token)
+    else if (_token == TOKEN_SYMBOL)
     {
         sym = lookup(_token_str, SYM_CONST);
         scan();
@@ -2151,15 +2149,22 @@ int const_value(void)
     int value;
 
     value = const_factor();
-    if (BINOP == _token && _mul_op == _token_op_id)
+    while (_token == TOKEN_BINOP)
     {
-        scan();
-        value *= const_factor();
-    }
-    else if (BINOP == _token && _add_op == _token_op_id)
-    {
-        scan();
-        value += const_factor();
+        if (_token_op_id == _mul_op)
+        {
+            scan();
+            value *= const_factor();
+        }
+        else if (_token_op_id == _add_op)
+        {
+            scan();
+            value += const_factor();
+        }
+        else
+        {
+            compiler_error("invalid operation", NULL);
+        }
     }
     return value;
 }
@@ -2175,7 +2180,7 @@ void var_declaration(int glob)
     scan();
     while (1)
     {
-        expect(SYMBOL, "symbol");
+        expect(TOKEN_SYMBOL, "symbol");
         size = 1;
         if (glob & SYM_GLOBF)
             var = add(_token_str, glob, 0);
@@ -2183,17 +2188,17 @@ void var_declaration(int glob)
             var = add(_token_str, 0, _local_frame_ptr);
 
         scan();
-        if (LBRACK == _token)
+        if (TOKEN_LEFT_BRACKET == _token)
         {
             scan();
             size = const_value();
             if (size < 1)
                 compiler_error("invalid size", NULL);
             var->flags |= SYM_VECTOR;
-            expect(RBRACK, "']'");
+            expect(TOKEN_RIGHT_BRACKET, "']'");
             scan();
         }
-        else if (BYTEOP == _token)
+        else if (TOKEN_BYTEOP == _token)
         {
             scan();
             size = const_value();
@@ -2208,7 +2213,7 @@ void var_declaration(int glob)
             if (var->flags & SYM_VECTOR)
             {
                 code_opcode_value(OP_ALLOC, size * BPW);
-                code_symbol(OP_GLOBVEC, var);
+                code_symbol(OP_GLOBAL_VEC, var);
             }
         }
         else
@@ -2218,16 +2223,16 @@ void var_declaration(int glob)
             _local_frame_ptr -= size * BPW;
             if (var->flags & SYM_VECTOR)
             {
-                code_opcode_value(OP_LOCLVEC, 0);
+                code_opcode_value(OP_LOCAL_VEC, 0);
                 _local_frame_ptr -= BPW;
             }
             var->value = _local_frame_ptr;
         }
 
-        if (_token == ASSIGN)
+        if (_token == TOKEN_ASSIGN)
             compiler_error("not allowed to assign values to variables on declaration", var->name);
 
-        if (_token != COMMA)
+        if (_token != TOKEN_COMMA)
             break;
 
         scan();
@@ -2241,14 +2246,14 @@ void const_declaration(int glob)
     scan();
     while (1)
     {
-        expect(SYMBOL, "symbol");
+        expect(TOKEN_SYMBOL, "symbol");
         y = add(_token_str, glob | SYM_CONST, 0);
 
         scan();
         expect_equal_sign();
         y->value = const_value();
 
-        if (_token != COMMA)
+        if (_token != TOKEN_COMMA)
             break;
 
         scan();
@@ -2258,17 +2263,17 @@ void const_declaration(int glob)
 void struct_declaration(int glob)
 {
     scan();
-    expect(SYMBOL, "symbol");
+    expect(TOKEN_SYMBOL, "symbol");
     symbol_t *struct_sym = add(_token_str, glob | SYM_CONST, 0);
     scan();
     int i = 0;
 
-    expect(BLOCK_START, "{");
+    expect(TOKEN_BLOCK_START, "{");
     scan();
 
-    while (_token != BLOCK_END)
+    while (_token != TOKEN_BLOCK_END)
     {
-        expect(SYMBOL, "symbol");
+        expect(TOKEN_SYMBOL, "symbol");
 
         char member[TOKEN_LEN];
         snprintf(member, TOKEN_LEN, "%s.%s", struct_sym->name, _token_str);
@@ -2289,7 +2294,7 @@ void forward_declaration(void)
     scan();
     while (1)
     {
-        expect(SYMBOL, "symbol");
+        expect(TOKEN_SYMBOL, "symbol");
         sym = add(_token_str, SYM_GLOBF|SYM_DECLARATION, 0);
         scan();
         expect_left_paren();
@@ -2300,7 +2305,7 @@ void forward_declaration(void)
         if (n < 0)
             compiler_error("invalid arity", NULL);
 
-        if (_token != COMMA)
+        if (_token != TOKEN_COMMA)
             break;
 
         scan();
@@ -2328,7 +2333,7 @@ void function_declaration(void)
     int local_addr = 2 * BPW;
     int number_arguments = 0;
 
-    code_t *jump = code_opcode(OP_JUMPFWD);
+    code_t *jump = code_opcode(OP_JUMP_FWD);
 
     scan();
     symbol_t *func_sym = add(_token_str, SYM_GLOBF | SYM_FUNCTION, _text_buffer_ptr);
@@ -2340,13 +2345,13 @@ void function_declaration(void)
     int old_string_table_ptr = _string_table_ptr;
     int local_base = _symbol_table_ptr;
 
-    while (SYMBOL == _token)
+    while (TOKEN_SYMBOL == _token)
     {
         add(_token_str, 0, local_addr);
         local_addr += BPW;
         number_arguments++;
         scan();
-        if (_token != COMMA)
+        if (_token != TOKEN_COMMA)
             break;
         scan();
     }
@@ -2391,16 +2396,16 @@ void declaration(int glob)
 {
     switch (_token)
     {
-        case KVAR:
+        case TOKEN_KEYWORD_VAR:
             var_declaration(glob);
             break;
-        case KCONST:
+        case TOKEN_KEYWORD_CONST:
             const_declaration(glob);
             break;
-        case KSTRUCT:
+        case TOKEN_KEYWORD_STRUCT:
             struct_declaration(glob);
             break;
-        case KDECL:
+        case TOKEN_KEYWORD_DECL:
             forward_declaration();
             break;
         default:
@@ -2417,23 +2422,23 @@ void function_call(symbol_t *fn)
     if (fn == NULL)
         compiler_error("call of non-function", NULL);
 
-    while (_token != RPAREN)
+    while (_token != TOKEN_RIGHT_PAREN)
     {
         expression(0);
         argument_count++;
 
-        if (_token != COMMA)
+        if (_token != TOKEN_COMMA)
             break;
         scan();
         
-        if (_token == RPAREN)
+        if (_token == TOKEN_RIGHT_PAREN)
             compiler_error("syntax error", _token_str);
     }
 
     if (argument_count != (fn->flags >> 8))
         compiler_error("wrong number of arguments", fn->name);
 
-    expect(RPAREN, "')'");
+    expect(TOKEN_RIGHT_PAREN, "')'");
     scan();
 
     if (loaded())
@@ -2485,12 +2490,12 @@ int make_table(void)
     scan();
     n = 0;
 
-    while (_token != RBRACK)
+    while (_token != TOKEN_RIGHT_BRACKET)
     {
         if (n >= MAXTBL)
             compiler_error("table too big", NULL);
 
-        if (LPAREN == _token)
+        if (TOKEN_LEFT_PAREN == _token)
         {
             scan();
             dynamic = 1;
@@ -2500,26 +2505,26 @@ int make_table(void)
         {
             expression(1);
             table_value[n] = 0;
-            table_code[n++] = code_opcode_value(OP_STGLOB, 0);
+            table_code[n++] = code_opcode_value(OP_STORE_GLOBAL, 0);
             
-            if (RPAREN == _token)
+            if (TOKEN_RIGHT_PAREN == _token)
             {
                 scan();
                 dynamic = 0;
             }
         }
-        else if (_token == INTEGER || _token == SYMBOL)
+        else if (_token == TOKEN_INTEGER || _token == TOKEN_SYMBOL)
         {
             table_value[n++] = const_value();
             //table_code[n++] = 0;
         }
-        else if (_token == STRING)
+        else if (_token == TOKEN_STRING)
         {
             table_value[n++] = make_string(_token_str) + _options->data_start_address;
             //table_code[n++] = 1;
             scan();
         }
-        else if (_token == LBRACK)
+        else if (_token == TOKEN_LEFT_BRACKET)
         {
             table_value[n++] = make_table() + _options->data_start_address;
             //table_code[n++] = 1;
@@ -2529,13 +2534,13 @@ int make_table(void)
             compiler_error("invalid table element", _token_str);
         }
 
-        if (_token != COMMA)
+        if (_token != TOKEN_COMMA)
             break;
 
         scan();
     }
 
-    expect(RBRACK, "']'");
+    expect(TOKEN_RIGHT_BRACKET, "']'");
     scan();
     loc = _data_buffer_ptr;
 
@@ -2553,17 +2558,17 @@ int make_table(void)
 void load(symbol_t *sym)
 {
     if (sym->flags & SYM_GLOBF)
-        code_symbol(OP_LDGLOBAL, sym);
+        code_symbol(OP_LOAD_GLOBAL, sym);
     else
-        code_opcode_value(OP_LDLOCAL, sym->value);
+        code_opcode_value(OP_LOAD_LOCAL, sym->value);
 }
 
 void store(symbol_t *sym)
 {
     if (sym->flags & SYM_GLOBF)
-        code_symbol(OP_STGLOB, sym);
+        code_symbol(OP_STORE_GLOBAL, sym);
     else
-        code_opcode_value(OP_STLOCL, sym->value);
+        code_opcode_value(OP_STORE_LOCAL, sym->value);
 }
 
 void factor(void);
@@ -2579,7 +2584,7 @@ symbol_t *address(int level, int *byte_ptr)
             compiler_error("invalid address", sym->name);
 
         spill();
-        code_opcode_value(OP_LDVAL, sym->value);
+        code_opcode_value(OP_LOAD_VALUE, sym->value);
         
     }
     else if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION))
@@ -2587,53 +2592,44 @@ symbol_t *address(int level, int *byte_ptr)
         if (level == 2)
             return sym;
     }
-    else if (level == 0 || _token == LBRACK || _token == BYTEOP)
+    else if (level == 0 || _token == TOKEN_LEFT_BRACKET || _token == TOKEN_BYTEOP)
     {
         spill();
-
-        if (_token == INC)
-        {
-            if (sym->flags & SYM_GLOBF)
-                code_symbol(OP_LDADDR, sym);
-            else
-                code_opcode_value(OP_LDLOCALREF, sym->value);
-        }
-        else
-            load(sym);
+        load(sym);
     }
 
-    if (_token == LBRACK || _token == BYTEOP)
+    if (_token == TOKEN_LEFT_BRACKET || _token == TOKEN_BYTEOP)
     {
         if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST))
             compiler_error("bad subscript", sym->name);
     }
 
-    while (LBRACK == _token)
+    while (TOKEN_LEFT_BRACKET == _token)
     {
         *byte_ptr = 0;
         scan();
         expression(0);
-        expect(RBRACK, "']'");
+        expect(TOKEN_RIGHT_BRACKET, "']'");
         scan();
 
-        code_opcode_value(OP_INDEX, 0);
+        code_opcode_value(OP_INDEX_WORD, 0);
 
         sym = NULL;
 
-        if (_token == LBRACK || _token == BYTEOP || (level == 0 && _token != INC))
-            code_opcode_value(OP_DEREF, 0);
+        if (_token == TOKEN_LEFT_BRACKET || _token == TOKEN_BYTEOP || level == 0)
+            code_opcode_value(OP_DEREF_WORD, 0);
     }
 
-    if (_token == BYTEOP)
+    if (_token == TOKEN_BYTEOP)
     {
         *byte_ptr = 1;
         scan();
         factor();
         sym = NULL;
-        code_opcode_value(OP_INDXB, 0);
+        code_opcode_value(OP_INDEX_BYTE, 0);
 
-        if (level == 0 && _token != INC)
-            code_opcode_value(OP_DREFB, 0);
+        if (level == 0)
+            code_opcode_value(OP_DEREF_BYTE, 0);
     }
     return sym;
 }
@@ -2646,38 +2642,33 @@ void factor(void)
     int op;
     int b;
 
-    if (_token == INTEGER)
+    if (_token == TOKEN_INTEGER)
     {
         spill();
-        code_opcode_value(OP_LDVAL, _token_value);
+        code_opcode_value(OP_LOAD_VALUE, _token_value);
         scan();
     }
-    else if (_token == SYMBOL)
+    else if (_token == TOKEN_SYMBOL)
     {
         y = address(0, &b);
 
-        if (_token == LPAREN)
+        if (_token == TOKEN_LEFT_PAREN)
         {
             function_call(y);
         }
-        else if (_token == INC)
-        {
-            code_opcode(OP_INC);
-            scan();
-        }
     }
-    else if (_token == STRING)
+    else if (_token == TOKEN_STRING)
     {
         spill();
-        code_opcode_value(OP_LDADDR, make_string(_token_str) + _options->data_start_address);
+        code_opcode_value(OP_LOAD_GLOBAL_ADDR, make_string(_token_str) + _options->data_start_address);
         scan();
     }
-    else if (_token == LBRACK)
+    else if (_token == TOKEN_LEFT_BRACKET)
     {
         spill();
-        code_opcode_value(OP_LDADDR, make_table() + _options->data_start_address);
+        code_opcode_value(OP_LOAD_GLOBAL_ADDR, make_table() + _options->data_start_address);
     }
-    else if (_token == ADDROF)
+    else if (_token == TOKEN_ADDROF)
     {
         scan();
         y = address(2, &b);
@@ -2688,15 +2679,15 @@ void factor(void)
         else if (y->flags & SYM_GLOBF)
         {
             spill();
-            code_symbol(OP_LDADDR, y);
+            code_symbol(OP_LOAD_GLOBAL_ADDR, y);
         }
         else
         {
             spill();
-            code_opcode_value(OP_LDLOCALREF, y->value);
+            code_opcode_value(OP_LOAD_LOCAL_ADDR, y->value);
         }
     }
-    else if (_token == BINOP)
+    else if (_token == TOKEN_BINOP)
     {
         op = _token_op_id;
         if (_token_op_id != _minus_op)
@@ -2706,28 +2697,28 @@ void factor(void)
         factor();
         code_opcode(OP_NEG);
     }
-    else if (_token == UNOP)
+    else if (_token == TOKEN_UNOP)
     {
         op = _token_op_id;
         scan();
         factor();
         code_opcode(_operators[op].code);
     }
-    else if (_token == LPAREN)
+    else if (_token == TOKEN_LEFT_PAREN)
     {
         scan();
         expression(0);
         expect_right_paren();
     }
-    else if (_token == KPEEK8)
+    else if (_token == TOKEN_KEYWORD_PEEK8)
     {
         peek_statement(OP_PEEK8);
     }
-    else if (_token == KPEEK16)
+    else if (_token == TOKEN_KEYWORD_PEEK16)
     {
         peek_statement(OP_PEEK16);
     }
-    else if (_token == KPEEK32)
+    else if (_token == TOKEN_KEYWORD_PEEK32)
     {
         peek_statement(OP_PEEK32);
     }
@@ -2751,7 +2742,7 @@ void arithmetic(void)
     int stack_ptr = 0;
 
     factor();
-    while (BINOP == _token)
+    while (TOKEN_BINOP == _token)
     {
         while (stack_ptr && _operators[_token_op_id].prec <= _operators[operator_stack[stack_ptr - 1]].prec)
             stack_ptr = emitop(operator_stack, stack_ptr);
@@ -2772,10 +2763,10 @@ void conjn(void)
 
     arithmetic();
 
-    while (CONJ == _token)
+    while (TOKEN_CONJ == _token)
     {
         scan();
-        jump_stack[n] = code_opcode(OP_JMPFALSE);
+        jump_stack[n] = code_opcode(OP_JUMP_FALSE);
         clear();
         arithmetic();
         n++;
@@ -2795,10 +2786,10 @@ void disjn(void)
 
     conjn();
 
-    while (DISJ == _token)
+    while (TOKEN_DISJ == _token)
     {
         scan();
-        jump_stack[n] = code_opcode(OP_JMPTRUE);
+        jump_stack[n] = code_opcode(OP_JUMP_TRUE);
         clear();
         conjn();
         n++;
@@ -2820,14 +2811,14 @@ void expression(int clr)
 
     disjn();
 
-    if (_token == COND)
+    if (_token == TOKEN_COND)
     {
         scan();
-        code_t *false_jump = code_opcode(OP_JMPFALSE);
+        code_t *false_jump = code_opcode(OP_JUMP_FALSE);
         expression(1);
-        expect(COLON, "':'");
+        expect(TOKEN_COLON, "':'");
         scan();
-        code_t *fwd_jump = code_opcode(OP_JUMPFWD);
+        code_t *fwd_jump = code_opcode(OP_JUMP_FWD);
 
         resolve_jump(false_jump, code_opcode(OP_JUMP_TARGET));
         expression(1);
@@ -2864,15 +2855,15 @@ void if_statement()
     expect_left_paren();
     expression(1);
     
-    code_t *jump = code_opcode(OP_JMPFALSE);
+    code_t *jump = code_opcode(OP_JUMP_FALSE);
     
     expect_right_paren();
 
     block_statement();
 
-    if (_token == KELSE)
+    if (_token == TOKEN_KEYWORD_ELSE)
     {
-        code_t *else_jump = code_opcode(OP_JUMPFWD);
+        code_t *else_jump = code_opcode(OP_JUMP_FWD);
         resolve_jump(jump, code_opcode(OP_JUMP_TARGET));
         jump = else_jump;
 
@@ -2897,12 +2888,12 @@ void while_statement(void)
     expression(1);
     expect_right_paren();
 
-    code_t *jump_false = code_opcode(OP_JMPFALSE);
+    code_t *jump_false = code_opcode(OP_JUMP_FALSE);
    
 
     block_statement();
     
-    resolve_jump(code_opcode(OP_JUMPBACK), while_test);
+    resolve_jump(code_opcode(OP_JUMP_BACK), while_test);
     resolve_jump(jump_false, code_opcode(OP_JUMP_TARGET));
 
     while (_leaves_ptr > old_leaves_ptr)
@@ -2924,7 +2915,7 @@ void leave_statement(void)
     if (_leaves_ptr >= MAXLOOP)
         compiler_error("too many LEAVEs", NULL);
 
-    _leaves[_leaves_ptr++] = code_opcode(OP_JUMPFWD);
+    _leaves[_leaves_ptr++] = code_opcode(OP_JUMP_FWD);
 }
 
 void loop_statement(void)
@@ -2944,14 +2935,14 @@ void loop_statement(void)
     if (jump_target->next != NULL)
         jump_target->next->prev = jump_target;
 
-    resolve_jump(code_opcode(OP_JUMPBACK), jump_target);
+    resolve_jump(code_opcode(OP_JUMP_BACK), jump_target);
 }
 
 void peek_statement(int opcode)
 {
     scan();
     expect_left_paren();
-    expression(0);
+    expression(1);
     expect_right_paren();
     code_opcode(opcode);
 }
@@ -2960,9 +2951,9 @@ void poke_statement(int opcode)
 {
     scan();
     expect_left_paren();
-    expression(0);
+    expression(1);
 
-    if (_token != COMMA)
+    if (_token != TOKEN_COMMA)
         compiler_error("expected comma between arguments in poke", NULL);
     scan();
 
@@ -2973,6 +2964,64 @@ void poke_statement(int opcode)
     clear();
 }
 
+void inc_statement(void)
+{
+    scan();
+    expect_left_paren();
+
+    if (_token != TOKEN_SYMBOL)
+        compiler_error("only possible to increment variables", _token_str);
+
+    symbol_t *var = find(_token_str);
+    if (var == NULL)
+        compiler_error("unknown operator", _token_str);
+
+    if (var->flags == SYM_GLOBF || var->flags == 0)
+    {
+        if (var->flags & SYM_GLOBF)
+            code_symbol(OP_LOAD_GLOBAL_ADDR, var);
+        else
+            code_opcode_value(OP_LOAD_LOCAL_ADDR, var->value);
+        code_opcode(OP_INC);
+    }
+    else
+    {
+        compiler_error("only possible to increment variables", var->name);
+    }
+
+    scan();
+    expect_right_paren();
+}
+
+void dec_statement(void)
+{
+    scan();
+    expect_left_paren();
+
+    if (_token != TOKEN_SYMBOL)
+        compiler_error("only possible to decrement variables", _token_str);
+
+    symbol_t *var = find(_token_str);
+    if (var == NULL)
+        compiler_error("unknown operator", _token_str);
+
+    if (var->flags == SYM_GLOBF || var->flags == 0)
+    {
+        if (var->flags & SYM_GLOBF)
+            code_symbol(OP_LOAD_GLOBAL_ADDR, var);
+        else
+            code_opcode_value(OP_LOAD_LOCAL_ADDR, var->value);
+        code_opcode(OP_DEC);
+    }
+    else
+    {
+        compiler_error("only possible to decrement variables", var->name);
+    }
+
+    scan();
+    expect_right_paren();
+}
+
 void assignment_or_call(void)
 {
     int byte_addr;
@@ -2980,20 +3029,20 @@ void assignment_or_call(void)
     clear();
     symbol_t *sym = address(1, &byte_addr);
 
-    if (_token == LPAREN)
+    if (_token == TOKEN_LEFT_PAREN)
     {
         function_call(sym);
     }
-    else if (_token == ASSIGN)
+    else if (_token == TOKEN_ASSIGN)
     {
         scan();
         expression(0);
         if (sym == NULL)
         {
             if (byte_addr)
-                code_opcode(OP_STINDB);
+                code_opcode(OP_STORE_INDIRECT_BYTE);
             else
-                code_opcode(OP_STINDR);
+                code_opcode(OP_STORE_INDIRECT_WORD);
         }
         else if (sym->flags & (SYM_FUNCTION | SYM_DECLARATION | SYM_CONST | SYM_VECTOR))
         {
@@ -3003,19 +3052,6 @@ void assignment_or_call(void)
         {
             store(sym);
         }
-    }
-    else if (_token == INC)
-    {
-        if (sym != NULL)
-        {
-            if (sym->flags & SYM_GLOBF)
-                code_symbol(OP_LDADDR, sym);
-            else
-                code_opcode_value(OP_LDLOCALREF, sym->value);
-        }
-
-        code_opcode(OP_INC);
-        scan();
     }
     else
     {
@@ -3027,46 +3063,52 @@ void statement(void)
 {
     switch (_token)
     {
-        case KHALT:
+        case TOKEN_KEYWORD_HALT:
             halt_statement();
             break;
-        case KIF:
+        case TOKEN_KEYWORD_IF:
             if_statement();
             break;
-        case KLEAVE:
+        case TOKEN_KEYWORD_LEAVE:
             leave_statement();
             break;
-        case KLOOP:
+        case TOKEN_KEYWORD_LOOP:
             loop_statement();
             break;
-        case KRETURN:
+        case TOKEN_KEYWORD_RETURN:
             return_statement();
             break;
-        case KWHILE:
+        case TOKEN_KEYWORD_WHILE:
             while_statement();
             break;
-        case KPEEK8:
+        case TOKEN_KEYWORD_INC:
+            inc_statement();
+            break;
+        case TOKEN_KEYWORD_DEC:
+            dec_statement();
+            break;
+        case TOKEN_KEYWORD_PEEK8:
             peek_statement(OP_PEEK8);
             break;
-        case KPEEK16:
+        case TOKEN_KEYWORD_PEEK16:
             peek_statement(OP_PEEK16);
             break;
-        case KPEEK32:
+        case TOKEN_KEYWORD_PEEK32:
             peek_statement(OP_PEEK32);
             break;
-        case KPOKE8:
+        case TOKEN_KEYWORD_POKE8:
             poke_statement(OP_POKE8);
             break;
-        case KPOKE16:
+        case TOKEN_KEYWORD_POKE16:
             poke_statement(OP_POKE16);
             break;
-        case KPOKE32:
+        case TOKEN_KEYWORD_POKE32:
             poke_statement(OP_POKE32);
             break;
-        case BLOCK_START:
+        case TOKEN_BLOCK_START:
             block_statement();
             break;
-        case SYMBOL:
+        case TOKEN_SYMBOL:
             assignment_or_call();
             break;
         default:
@@ -3077,16 +3119,16 @@ void statement(void)
 
 void block_statement(void)
 {
-    expect(BLOCK_START, "{");
+    expect(TOKEN_BLOCK_START, "{");
     scan();
 
     int old_symbol_table_ptr = _symbol_table_ptr;
     int old_local_frame_ptr = _local_frame_ptr;
 
-    while (_token == KVAR || _token == KCONST || _token == KSTRUCT)
+    while (_token == TOKEN_KEYWORD_VAR || _token == TOKEN_KEYWORD_CONST || _token == TOKEN_KEYWORD_STRUCT)
         declaration(0);
 
-    while (_token != BLOCK_END)
+    while (_token != TOKEN_BLOCK_END)
         statement();
 
     scan();
@@ -3105,7 +3147,7 @@ void program(void)
     int i;
 
     scan();
-    while (_token == KVAR || _token == KCONST || _token == KFUNC || _token == KDECL || _token == KSTRUCT)
+    while (_token == TOKEN_KEYWORD_VAR || _token == TOKEN_KEYWORD_CONST || _token == TOKEN_KEYWORD_FUNC || _token == TOKEN_KEYWORD_DECL || _token == TOKEN_KEYWORD_STRUCT)
         declaration(SYM_GLOBF);
 
     for (i = 0; i < _symbol_table_ptr; i++) 
@@ -3171,7 +3213,7 @@ void init(void)
     _current_code = _code_start;
     _current_code->opcode = OP_INIT;
     _current_code->value = HEAP_END;
-    code_t *jmp = code_opcode(OP_JUMPFWD);
+    code_t *jmp = code_opcode(OP_JUMP_FWD);
     
     // Special variables used by the standard library
     symbol_t *sym = add("__heap_ptr", SYM_GLOBF, 0);

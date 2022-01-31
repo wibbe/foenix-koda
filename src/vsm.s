@@ -79,45 +79,29 @@
 	org $010000
 
 SYSCALL0:
-	move.l d0,-(sp)
-	move.l a6,-(sp)
-	move.l (12,sp),d0
+	move.l (4,sp),d0
 	trap #15
-	move.l (sp)+,a6
-	move.l (sp)+,d0				; TODO: This will not work, we will not get any result back from the syscall!!!
 	rts
 
 SYSCALL1:
-	move.l d0,-(sp)
-	move.l a6,-(sp)
-	move.l (12,sp),d1
-	move.l (16,sp),d0
+	move.l (4,sp),d1
+	move.l (8,sp),d0
 	trap #15
-	move.l (sp)+,a6
-	move.l (sp)+,d0				; TODO: This will not work, we will not get any result back from the syscall!!!
 	rts
 
 SYSCALL2:
-	move.l d0,-(sp)
-	move.l a6,-(sp)
-	move.l (12,sp),d2
-	move.l (16,sp),d1
-	move.l (20,sp),d0
+	move.l (4,sp),d2
+	move.l (8,sp),d1
+	move.l (12,sp),d0
 	trap #15
-	move.l (sp)+,a6
-	move.l (sp)+,d0				; TODO: This will not work, we will not get any result back from the syscall!!!
 	rts
 
 SYSCALL3:
-	move.l d0,-(sp)
-	move.l a6,-(sp)
-	move.l (12,sp),d3
-	move.l (16,sp),d2
-	move.l (20,sp),d1
-	move.l (24,sp),d0
+	move.l (4,sp),d3
+	move.l (8,sp),d2
+	move.l (12,sp),d1
+	move.l (16,sp),d0
 	trap #15
-	move.l (sp)+,a6
-	move.l (sp)+,d0				; TODO: This will not work, we will not get any result back from the syscall!!!
 	rts
 
 MEMSCAN:
@@ -344,9 +328,11 @@ CG_DECLOCL: 	;w  	[F + w]: = [F + w] + 1
 
 CG_INC:			; [A] := [A] + 1, A := [A]
 	move.l d0,a5
-	move.l (a5),d1
 	addq.l #1,(a5)
-	move.l d1,d0
+
+CG_DEC:
+	move.l d0,a5
+	subq.l #1,(a5)
 
 CG_ALLOC:	; w	P: = P − w
 	suba.l #$FEDCBA98,a7
@@ -538,17 +524,19 @@ CG_SHR:		;	A := S0 div 2A; P := P + 1 (r ight shift)
 
 CG_PEEK8:
 	move.l d0,a5
-	clr.l d0
+	moveq #0,d0
+	;clr.l d0
 	move.b (a5),d0
 
 CG_PEEK16:
 	move.l d0,a5
-	clr.l d0
+	moveq #0,d0
+	;clr.l d0
 	move.w (a5),d0
 
 CG_PEEK32:
 	move.l d0,a5
-	move.l (a0),d0
+	move.l (a5),d0
 
 CG_POKE8:
 	move.l (sp)+,a5
