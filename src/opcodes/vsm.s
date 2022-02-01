@@ -269,7 +269,7 @@ CG_CLEAR:	; A: = 0
 	clr.l d0
 
 CG_LDVAL: 	; w	P: = P − 1; S0: = A; A: = w
-	move.l #$FEDCBA98,d0
+	move.l #$BEEFFEED,d0
 
 CG_LDVAL_SHORT:
 	moveq	#$55,d0

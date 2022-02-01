@@ -3,8 +3,8 @@
 #define KODA_H
 
 enum {
-	KODA_OUTPUT_TYPE_PGZ    = 0,
-    KODA_OUTPUT_TYPE_SREC   = 1,
+	KODA_OUTPUT_TYPE_PGZ    	= 0,
+    KODA_OUTPUT_TYPE_SREC   	= 1,
 };
 
 typedef struct koda_embed_t {
@@ -37,5 +37,10 @@ typedef struct koda_compiler_options_t {
 
 int koda_compile(koda_compiler_options_t *options);
 
+#if PLATFORM_WIN
+	int koda_opcode_arg_count(int opcode);
+	const char *koda_opcode_name(int opcode);
+	int koda_compile_to_bytecode(koda_compiler_options_t *options, const char *name, const char *code_string, int **bytecode_output, int *bytecode_len);
+#endif
 
 #endif

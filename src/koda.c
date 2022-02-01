@@ -10,88 +10,11 @@
 #endif
 
 #include "foenix_stdlib.h"
+#include "opcodes.h"
+#include "opcodes_68k.h"
 #include "koda.h"
 
-
-#define CG_INIT             "202F0004222F00082E7C,l2F002F01"
-#define CG_PUSH             "2F00"                  // P: = P − 1; S0: = A
-#define CG_LDVAL            "203C,l"                // P: = P − 1; S0: = A; A: = w
-#define CG_LDVAL_SHORT      "70,b"
-#define CG_LDVAL_SP         "2F3C,l"
-#define CG_LDADDR           "203C,a"                // P: = P − 1; S0: = A; A: = a
-#define CG_LDADDR_SP        "2F3C,a"
-#define CG_LDLOCALREF       "200ED0BC,l"            // P: = P − 1; S0: = A; A: = F + w
-#define CG_LDGLOBAL         "2039,a"                // P: = P − 1; S0: = A; A: = [a]
-#define CG_LDGLOBAL_SP      "2F39,a"
-#define CG_LDLOCAL          "202E,w"                // P: = P − 1; S0: = A; A: = [F + w]
-#define CG_LDLOCAL_SP       "2F2E,w"
-#define CG_CLEAR            "7000"                  // A: = 0
-#define CG_STGLOB           "23C0,a"                // [a]: = A; A: = S0; P: = P + 1
-#define CG_STLOCL           "2D40,w"                // [F + w]: = A; A: = S0; P: = P + 1
-#define CG_STINDR           "2A5F2A80"              // [S0]: = A; P: = P + 1
-#define CG_STINDB           "2A5F1A80"              // b[S0]: = A; P: = P + 1
-#define CG_ALLOC            "9FFC,l"                // P: = P − w
-#define CG_DEALLOC          "DFFC,l"                // P: = P + w
-#define CG_LOCLVEC          "2A4f2F0D"              // w: = P; P: = P − 1; S0: = w
-#define CG_GLOBVEC          "23CF,a"                // [a]: = P
-#define CG_HALT             "223C,l70004E4F"
-#define CG_INDEX            "221FE588D081"          // A: = 4 ⋅ A + S0; P: = P + 1
-#define CG_INDEX_CONSTANT   "D0BC,l"
-#define CG_DEREF            "2A402015"              // A: = [A]
-#define CG_INDXB            "221FD081"              // A: = A + S0; P: = P + 1
-#define CG_DREFB            "2A4070001015"
-#define CG_CALL             "4EB9,a"
-#define CG_CALL_INDIRECT    "2079,a4E90"
-#define CG_JUMPFWD          "6000,>"
-#define CG_JUMPBACK         "6000,<"
-#define CG_JUMP_TARGET      ",r"
-#define CG_ENTER            "2F0E2C4F"
-#define CG_EXIT             "2C5F4E75"
-#define CG_NEG              "4480"
-#define CG_INV              "4680"
-#define CG_LOGNOT           "220070004A81660270FF"
-#define CG_ADD              "D09F"
-#define CG_ADD_CONSTANT     "D0BC,l"
-#define CG_SUB              "221FC1419081"
-#define CG_MUL              "221F4EB9,a"
-#define CG_DIV              "2200201F4EB9,a"
-#define CG_MOD              "2200201F4EB9,a2001"
-#define CG_AND              "C09F"
-#define CG_OR               "809F"
-#define CG_XOR              "221FB380"
-#define CG_SHL              "221FE1A92001"
-#define CG_SHR              "221FE0A92001"
-#define CG_EQ               "221F24007000B481660270FF"
-#define CG_NEQ              "221F24007000B481670270FF"
-#define CG_LT               "221F24007000B4816F0270FF"
-#define CG_LE               "221F24007000B4816D0270FF"
-#define CG_GT               "221F24007000B4816C0270FF"
-#define CG_GE               "221F24007000B4816E0270FF"
-#define CG_JMPFALSE         "4A806700,>"
-#define CG_JMPTRUE          "4A806600,>"
-#define CG_INCGLOB          "52B9,a"
-#define CG_INCLOCL          "52AE,w"
-#define CG_INC              "2A405295"
-#define CG_DEC              "2A405395"
-#define CG_PEEK8            "2A4070001015"
-#define CG_PEEK16           "2A4070003015"
-#define CG_PEEK32           "2A402015"
-#define CG_POKE8            "2A5F1A80"
-#define CG_POKE16           "2A5F3A80"
-#define CG_POKE32           "2A5F2A80"
-
-#define CG_FUNC_SYSCALL0    "202F00044E4F4E75"
-#define CG_FUNC_SYSCALL1    "222F0004202F00084E4F4E75"
-#define CG_FUNC_SYSCALL2    "242F0004222F0008202F000C4E4F4E75"
-#define CG_FUNC_SYSCALL3    "262F0004242F0008222F000C202F00104E4F4E75"
-#define CG_FUNC_MEMSCAN     "222F0004242F0008206F000C22482448D5C1B5C9671276001619B483670260F22009908853804E7570FF4E75"
-#define CG_FUNC_MEMCOPY     "206F000C226F0008222F000410D951C9FFFC4E75"
-#define CG_FUNC_MEMSET      "222F0004242F0008206F000C10C251C9FFFC4E75"
-#define CG_FUNC_MIN         "222F0004242F0008B4416F042001600220024E75"
-#define CG_FUNC_MAX         "222F0004242F0008B4416F042002600220014E75"
-
-#define CG_MUL32            "2801B1844A806A0244804A816A024481B2BC0000FFFF630CC141B2BC0000FFFF620000203400C4C14840C0C148404A4066000010D0826B00000A4A846A0244804E75700060FA"
-#define CG_DIV32            "24012801B1844A806A0244804A816A024481761F22007000D281D1806708B0826B045281908251CBFFF0C1414A846A04448044814E75"
+#define INST_JUMP_TARGET      ",r"
 
 
 enum {
@@ -120,7 +43,7 @@ enum {
 };
 
 enum {
-    ENDFILE = -1,
+    TOKEN_ENDFILE = -1,
     TOKEN_SYMBOL = 100, 
     TOKEN_INTEGER, 
     TOKEN_STRING,
@@ -162,94 +85,27 @@ enum {
     TOKEN_KEYWORD_WHILE
 };
 
+
 enum {
-    OP_NONE,
-    OP_INIT,
-    OP_PUSH,
-    OP_LOAD_VALUE,
-    OP_LOAD_GLOBAL_ADDR,
-    OP_LOAD_LOCAL_ADDR,
-    OP_LOAD_GLOBAL,
-    OP_LOAD_LOCAL,
-    OP_CLEAR,
-    OP_STORE_GLOBAL,
-    OP_STORE_LOCAL,
-    OP_STORE_INDIRECT_WORD,
-    OP_STORE_INDIRECT_BYTE,
-    OP_ALLOC,
-    OP_DEALLOC,
-    OP_LOCAL_VEC,
-    OP_GLOBAL_VEC,
-    OP_HALT,
-    OP_INDEX_WORD,
-    OP_INDEX_BYTE,
-    OP_DEREF_WORD,
-    OP_DEREF_BYTE,
-    OP_CALL,
-    OP_CALL_INDIRECT,
-    OP_ENTER,
-    OP_EXIT,
-    OP_NEG,
-    OP_INV,
-    OP_LOGNOT,
-    OP_ADD,
-    OP_SUB,
-    OP_MUL,
-    OP_DIV,
-    OP_MOD,
-    OP_AND,
-    OP_OR,
-    OP_XOR,
-    OP_SHL,
-    OP_SHR,
-    OP_EQ,
-    OP_NEQ,
-    OP_LT,
-    OP_LE,
-    OP_GT,
-    OP_GE,
-    OP_JUMP_FWD,
-    OP_JUMP_BACK,
-    OP_JUMP_FALSE,
-    OP_JUMP_TRUE,
-    OP_INC,
-    OP_DEC,
-    OP_PEEK8,
-    OP_PEEK16,
-    OP_PEEK32,
-    OP_POKE8,
-    OP_POKE16,
-    OP_POKE32,
-
-    // TODO: Add special OP_PEEK8/16/32_CONSTANT opcode
-
-    // Special opcodes used internally for optimization
-    OP_ASM,                 // We have a blob of assembly code
-    OP_JUMP_TARGET,
-    OP_ALLOC_MEM,
-    OP_WRITE_32,
-
-    OP_LDVAL_SHORT,
-    OP_LDVAL_STACK,
-    OP_LDADDR_STACK,
-    OP_LDGLOBAL_STACK,
-    OP_LDLOCAL_STACK,
-
-    OP_ADD_CONSTANT,
-    OP_INDEX_CONSTANT,
-
-    OP_COUNT,
+    OP_ARG_NONE,
+    OP_ARG_VALUE_WORD,
+    OP_ARG_VALUE_LONG,
+    OP_ARG_ADDRESS,
+    OP_ARG_FORWARD_REF,
+    OP_ARG_BACKWARD_REF,
+    OP_ARG_TARGET_REF,
 };
+
 
 char *_opcode_names[OP_COUNT] = {
     [OP_INIT] = "OP_INIT",
-    [OP_PUSH] = "OP_PUSH",
     [OP_LOAD_VALUE] = "OP_LOAD_VALUE",
     [OP_LOAD_GLOBAL_ADDR] = "OP_LOAD_GLOBAL_ADDR",
     [OP_LOAD_LOCAL_ADDR] = "OP_LOAD_LOCAL_ADDR",
     [OP_LOAD_GLOBAL] = "OP_LOAD_GLOBAL",
     [OP_LOAD_LOCAL] = "OP_LOAD_LOCAL",
     [OP_CLEAR] = "OP_CLEAR",
+    [OP_DROP] = "OP_DROP",
     [OP_STORE_GLOBAL] = "OP_STORE_GLOBAL",
     [OP_STORE_LOCAL] = "OP_STORE_LOCAL",
     [OP_STORE_INDIRECT_WORD] = "OP_STORE_INDIRECT_WORD",
@@ -280,14 +136,14 @@ char *_opcode_names[OP_COUNT] = {
     [OP_AND] = "OP_AND",
     [OP_OR] = "OP_OR",
     [OP_XOR] = "OP_XOR",
-    [OP_SHL] = "OP_SHL",
-    [OP_SHR] = "OP_SHR",
+    [OP_SHIFT_LEFT] = "OP_SHIFT_LEFT",
+    [OP_SHIFT_RIGHT] = "OP_SHIFT_RIGHT",
     [OP_EQ] = "OP_EQ",
-    [OP_NEQ] = "OP_NEQ",
-    [OP_LT] = "OP_LT",
-    [OP_LE] = "OP_LE",
-    [OP_GT] = "OP_GT",
-    [OP_GE] = "OP_GE",
+    [OP_NOT_EQ] = "OP_NOT_EQ",
+    [OP_LESS] = "OP_LESS",
+    [OP_LESS_EQ] = "OP_LESS_EQ",
+    [OP_GREATER] = "OP_GREATER",
+    [OP_GREATER_EQ] = "OP_GREATER_EQ",
     [OP_JUMP_FALSE] = "OP_JUMP_FALSE",
     [OP_JUMP_TRUE] = "OP_JUMP_TRUE",
     [OP_INC] = "OP_INC",
@@ -302,82 +158,127 @@ char *_opcode_names[OP_COUNT] = {
     [OP_JUMP_TARGET] = "OP_JUMP_TARGET",
     [OP_ALLOC_MEM] = "OP_ALLOC_MEM",
     [OP_WRITE_32] = "OP_WRITE_32",
-    [OP_LDVAL_SHORT] = "OP_LDVAL_SHORT",
-    [OP_LDVAL_STACK] = "OP_LDVAL_STACK",
-    [OP_LDADDR_STACK] = "OP_LDADDR_STACK",
-    [OP_LDGLOBAL_STACK] = "OP_LDGLOBAL_STACK",
-    [OP_LDLOCAL_STACK] = "OP_LDLOCAL_STACK",
-    [OP_ADD_CONSTANT] = "OP_ADD_CONSTANT",
-    [OP_INDEX_CONSTANT] = "OP_INDEX_CONSTANT",
+};
+
+int _opcode_arguments[OP_COUNT] = {
+    [OP_INIT] = OP_ARG_VALUE_LONG,
+    [OP_LOAD_VALUE] = OP_ARG_VALUE_LONG,
+    [OP_LOAD_GLOBAL] = OP_ARG_ADDRESS,
+    [OP_LOAD_GLOBAL_ADDR] = OP_ARG_ADDRESS,
+    [OP_LOAD_LOCAL] = OP_ARG_VALUE_LONG,
+    [OP_LOAD_LOCAL_ADDR] = OP_ARG_VALUE_WORD,
+    [OP_CLEAR] = OP_ARG_NONE,
+    [OP_DROP] = OP_ARG_NONE,
+    [OP_STORE_GLOBAL] = OP_ARG_ADDRESS,
+    [OP_STORE_LOCAL] = OP_ARG_VALUE_WORD,
+    [OP_STORE_INDIRECT_WORD] = OP_ARG_NONE,
+    [OP_STORE_INDIRECT_BYTE] = OP_ARG_NONE,
+    [OP_ALLOC] = OP_ARG_VALUE_LONG,
+    [OP_DEALLOC] = OP_ARG_VALUE_LONG,
+    [OP_LOCAL_VEC] = OP_ARG_NONE,
+    [OP_GLOBAL_VEC] = OP_ARG_NONE,
+    [OP_HALT] = OP_ARG_VALUE_LONG,
+    [OP_INDEX_WORD] = OP_ARG_NONE,
+    [OP_INDEX_BYTE] = OP_ARG_NONE,
+    [OP_DEREF_WORD] = OP_ARG_NONE,
+    [OP_DEREF_BYTE] = OP_ARG_NONE,
+    [OP_CALL] = OP_ARG_ADDRESS,
+    [OP_CALL_INDIRECT] = OP_ARG_NONE,
+    [OP_JUMP_FWD] = OP_ARG_FORWARD_REF,
+    [OP_JUMP_BACK] = OP_ARG_BACKWARD_REF,
+    [OP_JUMP_FALSE] = OP_ARG_FORWARD_REF,
+    [OP_JUMP_TRUE] = OP_ARG_FORWARD_REF,
+    [OP_JUMP_TARGET] = OP_ARG_TARGET_REF,
+    [OP_ENTER] = OP_ARG_NONE,
+    [OP_EXIT] = OP_ARG_NONE,
+    [OP_NEG] = OP_ARG_NONE,
+    [OP_INV] = OP_ARG_NONE,
+    [OP_LOGNOT] = OP_ARG_NONE,
+    [OP_ADD] = OP_ARG_NONE,
+    [OP_SUB] = OP_ARG_NONE,
+    [OP_MUL] = OP_ARG_NONE,
+    [OP_DIV] = OP_ARG_NONE,
+    [OP_MOD] = OP_ARG_NONE,
+    [OP_AND] = OP_ARG_NONE,
+    [OP_OR] = OP_ARG_NONE,
+    [OP_XOR] = OP_ARG_NONE,
+    [OP_SHIFT_LEFT] = OP_ARG_NONE,
+    [OP_SHIFT_RIGHT] = OP_ARG_NONE,
+    [OP_EQ] = OP_ARG_NONE,
+    [OP_NOT_EQ] = OP_ARG_NONE,
+    [OP_LESS] = OP_ARG_NONE,
+    [OP_LESS_EQ] = OP_ARG_NONE,
+    [OP_GREATER] = OP_ARG_NONE,
+    [OP_GREATER_EQ] = OP_ARG_NONE,
+    [OP_INC] = OP_ARG_NONE,
+    [OP_DEC] = OP_ARG_NONE,
+    [OP_PEEK8] = OP_ARG_NONE,
+    [OP_PEEK16] = OP_ARG_NONE,
+    [OP_PEEK32] = OP_ARG_NONE,
+    [OP_POKE8] = OP_ARG_NONE,
+    [OP_POKE16] = OP_ARG_NONE,
+    [OP_POKE32] = OP_ARG_NONE,
 };
 
 char *_opcode_to_machine_code[OP_COUNT] = {
-    [OP_INIT] = CG_INIT,
-    [OP_PUSH] = CG_PUSH,
-    [OP_LOAD_VALUE] = CG_LDVAL,
-    [OP_LDVAL_STACK] = CG_LDVAL_SP,
-    [OP_LOAD_GLOBAL_ADDR] = CG_LDADDR,
-    [OP_LDADDR_STACK] = CG_LDADDR_SP,
-    [OP_LOAD_LOCAL_ADDR] = CG_LDLOCALREF,
-    [OP_LOAD_GLOBAL] = CG_LDGLOBAL,
-    [OP_LDGLOBAL_STACK] = CG_LDGLOBAL_SP,
-    [OP_LOAD_LOCAL] = CG_LDLOCAL,
-    [OP_LDLOCAL_STACK] = CG_LDLOCAL_SP,
-    [OP_CLEAR] = CG_CLEAR,
-    [OP_STORE_GLOBAL] = CG_STGLOB,
-    [OP_STORE_LOCAL] = CG_STLOCL,
-    [OP_STORE_INDIRECT_WORD] = CG_STINDR,
-    [OP_STORE_INDIRECT_BYTE] = CG_STINDB,
-    [OP_ALLOC] = CG_ALLOC,
-    [OP_DEALLOC] = CG_DEALLOC,
-    [OP_LOCAL_VEC] = CG_LOCLVEC,
-    [OP_GLOBAL_VEC] = CG_GLOBVEC,
-    [OP_HALT] = CG_HALT,
-    [OP_INDEX_WORD] = CG_INDEX,
-    [OP_INDEX_CONSTANT] = CG_INDEX_CONSTANT,
-    [OP_DEREF_WORD] = CG_DEREF,
-    [OP_INDEX_BYTE] = CG_INDXB,
-    [OP_DEREF_BYTE] = CG_DREFB,
-    [OP_CALL] = CG_CALL,
-    [OP_CALL_INDIRECT] = CG_CALL_INDIRECT,
-    [OP_JUMP_FWD] = CG_JUMPFWD,
-    [OP_JUMP_BACK] = CG_JUMPBACK,
-    [OP_JUMP_TARGET] = CG_JUMP_TARGET,
-    [OP_ENTER] = CG_ENTER,
-    [OP_EXIT] = CG_EXIT,
-    [OP_NEG] = CG_NEG,
-    [OP_INV] = CG_INV,
-    [OP_LOGNOT] = CG_LOGNOT,
-    [OP_ADD] = CG_ADD,
-    [OP_ADD_CONSTANT] = CG_ADD_CONSTANT,
-    [OP_SUB] = CG_SUB,
-    [OP_MUL] = CG_MUL,
-    [OP_DIV] = CG_DIV,
-    [OP_MOD] = CG_MOD,
-    [OP_AND] = CG_AND,
-    [OP_OR] = CG_OR,
-    [OP_XOR] = CG_XOR,
-    [OP_SHL] = CG_SHL,
-    [OP_SHR] = CG_SHR,
-    [OP_EQ] = CG_EQ,
-    [OP_NEQ] = CG_NEQ,
-    [OP_LT] = CG_LT,
-    [OP_LE] = CG_LE,
-    [OP_GT] = CG_GT,
-    [OP_GE] = CG_GE,
-    [OP_JUMP_FALSE] = CG_JMPFALSE,
-    [OP_JUMP_TRUE] = CG_JMPTRUE,
-    [OP_INC] = CG_INC,
-    [OP_DEC] = CG_DEC,
-    [OP_PEEK8] = CG_PEEK8,
-    [OP_PEEK16] = CG_PEEK16,
-    [OP_PEEK32] = CG_PEEK32,
-    [OP_POKE8] = CG_POKE8,
-    [OP_POKE16] = CG_POKE16,
-    [OP_POKE32] = CG_POKE32,
+    [OP_INIT] = INST_INIT,
+    [OP_LOAD_VALUE] = INST_LOAD_VALUE,
+    [OP_LOAD_GLOBAL] = INST_LOAD_GLOBAL,
+    [OP_LOAD_GLOBAL_ADDR] = INST_LOAD_GLOBAL_ADDR,
+    [OP_LOAD_LOCAL] = INST_LOAD_LOCAL,
+    [OP_LOAD_LOCAL_ADDR] = INST_LOAD_LOCAL_ADDR,
+    [OP_CLEAR] = INST_CLEAR,
+    [OP_DROP] = INST_DROP,
+    [OP_STORE_GLOBAL] = INST_STORE_GLOBAL,
+    [OP_STORE_LOCAL] = INST_STORE_LOCAL,
+    [OP_STORE_INDIRECT_WORD] = INST_STORE_INDIRECT_WORD,
+    [OP_STORE_INDIRECT_BYTE] = INST_STORE_INDIRECT_BYTE,
+    [OP_ALLOC] = INST_ALLOC,
+    [OP_DEALLOC] = INST_DEALLOC,
+    [OP_LOCAL_VEC] = INST_LOCAL_VEC,
+    [OP_GLOBAL_VEC] = INST_GLOBAL_VEC,
+    [OP_HALT] = INST_HALT,
+    [OP_INDEX_WORD] = INST_INDEX_WORD,
+    [OP_INDEX_BYTE] = INST_INDEX_BYTE,
+    [OP_DEREF_WORD] = INST_DEREF_WORD,
+    [OP_DEREF_BYTE] = INST_DEREF_BYTE,
+    [OP_CALL] = INST_CALL,
+    [OP_CALL_INDIRECT] = INST_CALL_INDIRECT,
+    [OP_JUMP_FWD] = INST_JUMP_FWD,
+    [OP_JUMP_BACK] = INST_JUMP_BACK,
+    [OP_JUMP_FALSE] = INST_JUMP_FALSE,
+    [OP_JUMP_TRUE] = INST_JUMP_TRUE,
+    [OP_JUMP_TARGET] = INST_JUMP_TARGET,
+    [OP_ENTER] = INST_ENTER,
+    [OP_EXIT] = INST_EXIT,
+    [OP_NEG] = INST_NEG,
+    [OP_INV] = INST_INV,
+    [OP_LOGNOT] = INST_LOGNOT,
+    [OP_ADD] = INST_ADD,
+    [OP_SUB] = INST_SUB,
+    [OP_MUL] = INST_MUL,
+    [OP_DIV] = INST_DIV,
+    [OP_MOD] = INST_MOD,
+    [OP_AND] = INST_AND,
+    [OP_OR] = INST_OR,
+    [OP_XOR] = INST_XOR,
+    [OP_SHIFT_LEFT] = INST_SHIFT_LEFT,
+    [OP_SHIFT_RIGHT] = INST_SHIFT_RIGHT,
+    [OP_EQ] = INST_EQ,
+    [OP_NOT_EQ] = INST_NOT_EQ,
+    [OP_LESS] = INST_LESS,
+    [OP_LESS_EQ] = INST_LESS_EQ,
+    [OP_GREATER] = INST_GREATER,
+    [OP_GREATER_EQ] = INST_GREATER_EQ,
+    [OP_INC] = INST_INC,
+    [OP_DEC] = INST_DEC,
+    [OP_PEEK8] = INST_PEEK8,
+    [OP_PEEK16] = INST_PEEK16,
+    [OP_PEEK32] = INST_PEEK32,
+    [OP_POKE8] = INST_POKE8,
+    [OP_POKE16] = INST_POKE16,
+    [OP_POKE32] = INST_POKE32,
 };
-
-
 
 typedef struct symbol_t symbol_t;
 typedef struct code_t code_t;
@@ -625,7 +526,7 @@ void print_code(code_t *code)
             break;
 
         case OP_LOAD_GLOBAL_ADDR:
-        case OP_LDADDR_STACK:
+        //case OP_LDADDR_STACK:
             if (code->symbol != NULL)
                 printf("%s%s\n", buffer, code->symbol->name);
             else
@@ -634,9 +535,9 @@ void print_code(code_t *code)
 
         case OP_LOAD_LOCAL_ADDR:
         case OP_LOAD_GLOBAL:
-        case OP_LDGLOBAL_STACK:
+        //case OP_LDGLOBAL_STACK:
         case OP_LOAD_LOCAL:
-        case OP_LDLOCAL_STACK:
+        //case OP_LDLOCAL_STACK:
         case OP_STORE_GLOBAL:
         case OP_STORE_LOCAL:
         case OP_GLOBAL_VEC:
@@ -736,9 +637,9 @@ void optimize_remove_dead_code(void)
             case OP_STORE_GLOBAL:
             case OP_GLOBAL_VEC:
             case OP_LOAD_GLOBAL_ADDR:
-            case OP_LDADDR_STACK:            
+            //case OP_LDADDR_STACK:            
             case OP_LOAD_GLOBAL:
-            case OP_LDGLOBAL_STACK:
+            //case OP_LDGLOBAL_STACK:
                 if (pc->symbol != NULL)
                 {   
                     if (pc->symbol->code != NULL)
@@ -831,6 +732,7 @@ void optimize_remove_dead_code(void)
 }
 
 // Transform LOAD + PUSH to LOAD_STACK instructions
+/*
 void optimize_load_push(void)
 {
     for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -860,8 +762,10 @@ void optimize_load_push(void)
         }
     }
 }
+*/
 
 // Transform LOAD_VALUE + ADD to ADD_CONSTANT
+/*
 void optimize_load_value_add(void)
 {
     for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -876,8 +780,10 @@ void optimize_load_value_add(void)
         }
     }
 }
+*/
 
 // Merge multiple ADD_CONSTANT + PUSH + ADD_CONSTANT instructions
+/*
 void optimize_merge_add_constant(void)
 {
     for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -896,7 +802,9 @@ void optimize_merge_add_constant(void)
         }
     }
 }
+*/
 
+/*
 void optimize_remove_constant_addition(void)
 {
     for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -914,6 +822,7 @@ void optimize_remove_constant_addition(void)
         }
     }
 }
+*/
 
 // Merge continous jumps
 void optimize_jumps(void)
@@ -981,7 +890,57 @@ void optimize_merge_alloc(void)
     }
 }
 
+void optimize_fold_constant_expressions(void)
+{
+    // We do four passes of folding constant expressions, so we can be sure we got them all
+    for (int pass = 0; pass < 4; ++pass)
+    {
+        for (code_t *it = _code_start; it != NULL; it = it->next)
+        {
+            if (has_next(it) && has_next(it->next))
+            {
+                if (it->opcode == OP_LOAD_VALUE && it->next->opcode == OP_LOAD_VALUE)
+                {
+                    switch (it->next->next->opcode)
+                    {
+                        case OP_ADD:
+                            it->value += it->next->value;
+                            remove_next(it);
+                            remove_next(it);
+                            break;
+
+                        case OP_SUB:
+                            it->value -= it->next->value;
+                            remove_next(it);
+                            remove_next(it);
+                            break;
+
+                        case OP_MUL:
+                            it->value *= it->next->value;
+                            remove_next(it);
+                            remove_next(it);
+                            break;
+
+                        case OP_DIV:
+                            it->value /= it->next->value;
+                            remove_next(it);
+                            remove_next(it);
+                            break;
+
+                        case OP_MOD:
+                            it->value %= it->next->value;
+                            remove_next(it);
+                            remove_next(it);
+                            break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Transform LOAD_VALUE + INDEX to INDEX_CONSTANT
+/*
 void optimize_load_value_index(void)
 {
     for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -998,8 +957,10 @@ void optimize_load_value_index(void)
         }
     }
 }
+*/
 
 // Remove OP_INDEX_CONSTANT 0 instructions, they do nothing for us
+/*
 void optimize_index_constant(void)
 {
     for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -1017,7 +978,9 @@ void optimize_index_constant(void)
         }
     }
 }
+*/
 
+/*
 void optimize_fix_load_value_xxx_constant(void)
 {
     // We have been to agressive in transforming OP_LDGLOBL/OP_LDLOCL + OP_PUSH to OP_LDxxx_STACK instructions, so we fix that here.
@@ -1062,6 +1025,7 @@ void optimize_fix_load_value_xxx_constant(void)
         }
     }    
 }
+*/
 
 void optimize_code(void)
 {
@@ -1072,16 +1036,18 @@ void optimize_code(void)
 
     // The order of these optimization passes are really important, we can not move them around without
     // changing the generated machine code.
-    optimize_remove_dead_code();
+    //optimize_load_push();
+    //optimize_load_value_add();
+    //optimize_merge_add_constant();
+    //optimize_remove_constant_addition();
+    //optimize_load_value_index();
+    //optimize_index_constant();
+    //optimize_fix_load_value_xxx_constant();
+
     optimize_jumps();
-    optimize_load_push();
-    optimize_load_value_add();
-    optimize_merge_add_constant();
-    optimize_remove_constant_addition();
-    optimize_load_value_index();
-    optimize_index_constant();
-    optimize_merge_alloc();
-    optimize_fix_load_value_xxx_constant();
+    optimize_merge_alloc();  
+    optimize_fold_constant_expressions();
+    optimize_remove_dead_code();
 }
 
 void mark_used_symbols(void)
@@ -1093,9 +1059,9 @@ void mark_used_symbols(void)
             case OP_STORE_GLOBAL:
             case OP_GLOBAL_VEC:
             case OP_LOAD_GLOBAL_ADDR:
-            case OP_LDADDR_STACK:
+            //case OP_LDADDR_STACK:
             case OP_LOAD_GLOBAL:
-            case OP_LDGLOBAL_STACK:
+            //case OP_LDGLOBAL_STACK:
                 if (it->symbol != NULL)
                     it->symbol->used = true;
                 break;
@@ -1199,20 +1165,22 @@ symbol_t *add(char *symbol_name, int flags, int value)
 
 void spill(void)
 {
+    /*
     if (_accumulator_loaded)
         code_opcode_value(OP_PUSH, 0);
     else
         _accumulator_loaded = 1;
+    */
 }
 
 int loaded(void)
 {
-    return _accumulator_loaded;
+    return 1; //_accumulator_loaded;
 }
 
 void clear(void)
 {
-    _accumulator_loaded = 0;
+    //_accumulator_loaded = 0;
 }
 
 int hex(int ch)
@@ -1382,10 +1350,10 @@ void emit_code(code_t *code, char *machine_code)
 
 void emit_load_value(code_t *code)
 {
-    if (code->value < SCHAR_MIN || code->value > SCHAR_MAX)
-        emit_code(code, CG_LDVAL);
-    else
-        emit_code(code, CG_LDVAL_SHORT);
+    //if (code->value < SCHAR_MIN || code->value > SCHAR_MAX)
+        emit_code(code, INST_LOAD_VALUE);
+    //else
+    //    emit_code(code, CG_LDVAL_SHORT);
 }
 
 void emit_addq(int value)
@@ -1412,15 +1380,15 @@ void emit_m68k_machine_code(void)
 
             case OP_ENTER:
                 it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                emit_code(it, CG_ENTER);
+                emit_code(it, INST_ENTER);
                 break;
 
-            case OP_ADD_CONSTANT:
-                if (it->value >= 0 && it->value < 8)
-                    emit_addq(it->value);
-                else
-                    emit_code(it, CG_ADD_CONSTANT);
-                break;
+            //case OP_ADD_CONSTANT:
+            //    if (it->value >= 0 && it->value < 8)
+            //        emit_addq(it->value);
+            //    else
+            //        emit_code(it, CG_ADD_CONSTANT);
+            //    break;
 
             case OP_ASM:
                 if (it->symbol != NULL)
@@ -1449,6 +1417,126 @@ void generate_m68k_machine_code(void)
     _text_buffer_ptr = 0;
     emit_m68k_machine_code();
 }
+
+#if PLATFORM_WIN
+
+void emit_opcode(int *bytecode, int opcode)
+{
+    if (bytecode != NULL)
+        bytecode[_text_buffer_ptr++] = opcode;
+    else
+        _text_buffer_ptr++;
+}
+
+void emit_opcode_value(int *bytecode, int opcode, int value)
+{
+    if (bytecode != NULL)
+    {
+        bytecode[_text_buffer_ptr++] = opcode;
+        bytecode[_text_buffer_ptr++] = value;
+    }
+    else
+        _text_buffer_ptr += 2;
+}
+
+void emit_bytecode(int *bytecode)
+{
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        it->position = _text_buffer_ptr;
+
+        switch (it->opcode)
+        {
+            case OP_WRITE_32:
+                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
+                _text_buffer_ptr += 1;
+                break;
+
+            case OP_ALLOC_MEM:
+                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
+                _text_buffer_ptr += ((it->value / 4) + 1) * 4;
+                break;
+
+            case OP_ENTER:
+                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
+                emit_opcode(bytecode, OP_ENTER);
+                break;
+
+            case OP_ASM:
+                if (it->symbol != NULL)
+                    it->symbol->value = _text_buffer_ptr + _options->text_start_address;
+                //emit_code(it, it->assembly);
+                emit_opcode(bytecode, OP_ASM);
+                break;
+
+            default:
+                {
+                    int arg_type = _opcode_arguments[it->opcode];
+
+                    switch (arg_type)
+                    {
+                        case OP_ARG_NONE:
+                            emit_opcode(bytecode, it->opcode);
+                            break;
+
+                        case OP_ARG_VALUE_WORD:
+                        case OP_ARG_VALUE_LONG:
+                            emit_opcode_value(bytecode, it->opcode, it->value);
+                            break;
+
+                        case OP_ARG_ADDRESS:
+                            emit_opcode_value(bytecode, it->opcode, it->symbol != NULL ? it->symbol->value : it->value);
+                            break;
+
+                        case OP_ARG_FORWARD_REF:
+                            emit_opcode(bytecode, it->opcode);
+                            it->position = _text_buffer_ptr;
+                            if (bytecode != NULL)
+                                bytecode[_text_buffer_ptr] = 0;
+                            _text_buffer_ptr += 1;                        
+                            break;
+
+                        case OP_ARG_BACKWARD_REF:
+                            emit_opcode(bytecode, it->opcode);
+                            if (bytecode != NULL)
+                            {
+                                int addr = it->code->position;
+                                bytecode[_text_buffer_ptr] = addr - _text_buffer_ptr;
+                            }
+                            _text_buffer_ptr += 1;                        
+                            break;
+
+                        case OP_ARG_TARGET_REF:
+                            if (it->code->opcode == OP_JUMP_FWD || it->code->opcode == OP_JUMP_TRUE || it->code->opcode == OP_JUMP_FALSE)
+                            {
+                                if (bytecode != NULL)
+                                {
+                                    int addr = it->code->position;
+                                    bytecode[addr] = _text_buffer_ptr - addr;
+                                }
+                            }                           
+                            break;
+                    }                    
+                }
+                //emit_opcode(bytecode, it->opcode);
+                break;
+        }
+    }  
+}
+
+void generate_bytecode(int **bytecode, int *bytecode_len)
+{
+    _text_buffer_ptr = 0;
+    emit_bytecode(NULL);
+
+    *bytecode_len = _text_buffer_ptr;
+    *bytecode = malloc(sizeof(int) * *bytecode_len);
+
+    _text_buffer_ptr = 0;
+    emit_bytecode(*bytecode);
+}
+
+#endif
 
 void builtin(char *name, int arity, char *code)
 {
@@ -1706,6 +1794,16 @@ void read_stdlib_source(void)
     _program_source_file = name;
 }
 
+void read_input_string(const char *name, const char *str)
+{
+    _current_line = 0;
+    _program_source_ptr = 0;
+    _program_source_file = (char *)name;
+    _program_source_len = strlen(str);
+    memcpy(_program_source, str, _program_source_len + 1);
+
+}
+
 int read_char(void)
 {
     return _program_source_ptr >= _program_source_len? EOF: _program_source[_program_source_ptr++];
@@ -1786,13 +1884,13 @@ operator_t _operators[] = {
     { 0, 1, "~",    TOKEN_UNOP,   OP_INV      },
     { 0, 1, ":",    TOKEN_COLON,  0           },
     { 0, 2, "::",   TOKEN_BYTEOP, 0           },
-    { 3, 2, "!=",   TOKEN_BINOP,  OP_NEQ      },
-    { 4, 1, "<",    TOKEN_BINOP,  OP_LT       },
-    { 4, 2, "<=",   TOKEN_BINOP,  OP_LE       },
-    { 5, 2, "<<",   TOKEN_BINOP,  OP_SHL      },
-    { 4, 1, ">",    TOKEN_BINOP,  OP_GT       },
-    { 4, 2, ">=",   TOKEN_BINOP,  OP_GE       },
-    { 5, 2, ">>",   TOKEN_BINOP,  OP_SHR      },
+    { 3, 2, "!=",   TOKEN_BINOP,  OP_NOT_EQ      },
+    { 4, 1, "<",    TOKEN_BINOP,  OP_LESS       },
+    { 4, 2, "<=",   TOKEN_BINOP,  OP_LESS_EQ       },
+    { 5, 2, "<<",   TOKEN_BINOP,  OP_SHIFT_LEFT      },
+    { 4, 1, ">",    TOKEN_BINOP,  OP_GREATER       },
+    { 4, 2, ">=",   TOKEN_BINOP,  OP_GREATER_EQ       },
+    { 5, 2, ">>",   TOKEN_BINOP,  OP_SHIFT_RIGHT      },
     { 0, 1, "=",    TOKEN_ASSIGN, 0           },
     { 3, 2, "==",   TOKEN_BINOP,  OP_EQ       },
     { 0, 0, NULL,   0,      0           }
@@ -1948,7 +2046,7 @@ int scan_next_token(void)
     if (ch == EOF)
     {
         strcpy(_token_str, "end of file");
-        return ENDFILE;
+        return TOKEN_ENDFILE;
     }
 
     if (ch == '{')
@@ -3032,6 +3130,7 @@ void assignment_or_call(void)
     if (_token == TOKEN_LEFT_PAREN)
     {
         function_call(sym);
+        code_opcode(OP_DROP);
     }
     else if (_token == TOKEN_ASSIGN)
     {
@@ -3224,10 +3323,10 @@ void init(void)
 
     // Add special math routines
     symbol_t *mul32 = add("__mul32", SYM_GLOBF, 0);
-    _mul32_code = code_asm(mul32, CG_MUL32);
+    _mul32_code = code_asm(mul32, INST_MUL32);
 
     symbol_t *div32 = add("__div32", SYM_GLOBF, 0);
-    _div32_code = code_asm(div32, CG_DIV32);
+    _div32_code = code_asm(div32, INST_DIV32);
 
     resolve_jump(jmp, code_opcode(OP_JUMP_TARGET));
 
@@ -3238,15 +3337,15 @@ void init(void)
     find_operator("/"); _div_op = _token_op_id;
     find_operator("%"); _mod_op = _token_op_id;
 
-    builtin("syscall0", 1, CG_FUNC_SYSCALL0);
-    builtin("syscall1", 2, CG_FUNC_SYSCALL1);
-    builtin("syscall2", 3, CG_FUNC_SYSCALL2);
-    builtin("syscall3", 4, CG_FUNC_SYSCALL3);
-    builtin("memscan", 3, CG_FUNC_MEMSCAN);
-    builtin("memcopy", 3, CG_FUNC_MEMCOPY);
-    builtin("memset", 3, CG_FUNC_MEMSET);
-    builtin("min", 2, CG_FUNC_MIN);
-    builtin("max", 2, CG_FUNC_MAX);
+    builtin("syscall0", 1, INST_SYSCALL0);
+    builtin("syscall1", 2, INST_SYSCALL1);
+    builtin("syscall2", 3, INST_SYSCALL2);
+    builtin("syscall3", 4, INST_SYSCALL3);
+    builtin("memscan", 3, INST_MEMSCAN);
+    builtin("memcopy", 3, INST_MEMCOPY);
+    builtin("memset", 3, INST_MEMSET);
+    builtin("min", 2, INST_MIN);
+    builtin("max", 2, INST_MAX);
 
     add("true", SYM_CONST, -1);
     add("false", SYM_CONST, 0);
@@ -3362,3 +3461,69 @@ int koda_compile(koda_compiler_options_t *options)
     return 1;
 }
 
+#if PLATFORM_WIN
+
+int koda_opcode_arg_count(int opcode)
+{
+    return _opcode_arguments[opcode] == OP_ARG_NONE ? 0 : 1;
+}
+
+const char *koda_opcode_name(int opcode)
+{
+    return _opcode_names[opcode];
+}
+
+int koda_compile_to_bytecode(koda_compiler_options_t *options, const char *name, const char *code_string, int **bytecode_output, int *bytecode_len)
+{
+    _options = options;
+
+    _text_buffer = malloc(_options->text_size);
+    _data_buffer = malloc(_options->data_size);
+    _string_table = malloc(STRING_TABLE_SIZE);
+    _symbol_table = malloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
+
+    init();   
+    
+    // Compile stdlib
+    read_stdlib_source();
+    program();
+
+    read_input_string(name, code_string);
+    program();
+
+    resolve_main();
+    optimize_code();
+    mark_used_symbols();
+
+    // Give global symbols an address value
+    for (int i = 0, pos = 0; i < _symbol_table_ptr; ++i)
+    {
+        symbol_t *sym = &_symbol_table[i];
+        if (!sym->used)
+            continue;
+
+        // Only allocate data space for global variables
+        if ((sym->flags == SYM_GLOBF) || (sym->flags == (SYM_GLOBF | SYM_VECTOR)))
+        {
+            if (sym->value == 0)
+            {
+                sym->value = pos + _options->data_start_address;
+                pos++;
+            }
+        }
+    }
+
+
+    generate_bytecode(bytecode_output, bytecode_len);
+
+    _options = NULL;
+
+    free(_text_buffer);
+    free(_data_buffer);
+    free(_string_table);
+    free(_symbol_table);
+
+    return 1; 
+}
+
+#endif    
