@@ -892,7 +892,7 @@ void optimize_merge_alloc(void)
 
 void optimize_fold_constant_expressions(void)
 {
-    // We do four passes of folding constant expressions, so we can be sure we got them all
+    // We do four passes of constant expression folding, so we can be sure we got them all
     for (int pass = 0; pass < 4; ++pass)
     {
         for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -932,6 +932,18 @@ void optimize_fold_constant_expressions(void)
                             remove_next(it);
                             remove_next(it);
                             break;
+
+                        case OP_SHIFT_LEFT:
+                            it->value = it->value << it->next->value;
+                            remove_next(it);
+                            remove_next(it);
+                            break;
+
+                        case OP_SHIFT_RIGHT:
+                            it->value = it->value >> it->next->value;
+                            remove_next(it);
+                            remove_next(it);
+                            break;                            
                     }
                 }
             }
@@ -1045,7 +1057,7 @@ void optimize_code(void)
     //optimize_fix_load_value_xxx_constant();
 
     optimize_jumps();
-    optimize_merge_alloc();  
+    optimize_merge_alloc();
     optimize_fold_constant_expressions();
     optimize_remove_dead_code();
 }
@@ -1059,9 +1071,7 @@ void mark_used_symbols(void)
             case OP_STORE_GLOBAL:
             case OP_GLOBAL_VEC:
             case OP_LOAD_GLOBAL_ADDR:
-            //case OP_LDADDR_STACK:
             case OP_LOAD_GLOBAL:
-            //case OP_LDGLOBAL_STACK:
                 if (it->symbol != NULL)
                     it->symbol->used = true;
                 break;
@@ -3481,6 +3491,10 @@ int koda_compile_to_bytecode(koda_compiler_options_t *options, const char *name,
     _data_buffer = malloc(_options->data_size);
     _string_table = malloc(STRING_TABLE_SIZE);
     _symbol_table = malloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
+    _symbol_table_ptr = 0;
+    _text_buffer_ptr = 0;
+    _data_buffer_ptr = 0;
+    _string_table_ptr = 0;
 
     init();   
     
