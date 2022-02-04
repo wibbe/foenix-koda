@@ -287,6 +287,8 @@ void test_function_declaration(void)
 
 int main(int argc, char *argv[])
 {
+	// TODO: Add test for defining local vectors
+
 	test_var_assignment();
 	test_local_vars();
 	test_constant_folding();

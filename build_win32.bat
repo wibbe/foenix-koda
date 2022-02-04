@@ -10,7 +10,7 @@ if %ERRORLEVEL% EQU 1 (
 	exit /b 0
 )
 
-rem vasmm68k_mot -m68000 -quiet -Fbin -L bin\vsm.lst -o bin\vsm.bin src/vsm.s
+vasmm68k_mot -m68000 -quiet -Fbin -L bin\vsm.lst -o bin\vsm.bin src/vsm.s
 
 call :opcode syscall0
 call :opcode syscall1
@@ -92,7 +92,8 @@ exit /b 0
 
 :opcode
 echo assembling opcode %1
-vasmm68k_mot -m68000 -quiet -Fbin -L bin\opcode_%1.lst -Isrc\opcodes -o bin\opcode_%1.bin src\opcodes\opcode_%1.s
+rem vasmm68k_mot -m68000 -quiet -Fbin -L bin\opcode_%1.lst -Isrc\opcodes -o bin\opcode_%1.bin src\opcodes\opcode_%1.s
+vasmm68k_mot -m68000 -quiet -Fbin -Isrc\opcodes -o bin\opcode_%1.bin src\opcodes\opcode_%1.s
 
 if %ERRORLEVEL% EQU 1 (
 	echo error compiling src\opcodes\%s.s

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 
 #if PLATFORM_FOENIX
     #include "foenix/syscall.h"
@@ -36,6 +37,11 @@ enum {
     MAXLOOP                 = 100,
 
     TOKEN_LEN               = 128,
+
+    SCRATCH_REG             = 7,
+    RETURN_REG              = 6,
+    NUMBER_OF_REGS          = 4,
+    REGISTER_SAVE_STACK     = 32,
 
     HEAP_START              = 0x00060000,
     HEAP_END                = 0x00100000,
@@ -96,6 +102,17 @@ enum {
     OP_ARG_TARGET_REF,
 };
 
+enum {
+    M68_BRANCH_TRUE             = 0x0000,
+    M68_BRANCH_FALSE            = 0x0100,
+    M68_BRANCH_NOT_EQUAL        = 0x0600,
+    M68_BRANCH_EQUAL            = 0x0700,
+    M68_BRANCH_GREATER_EQUAL    = 0x0C00,
+    M68_BRANCH_LESS             = 0x0D00,
+    M68_BRANCH_GREATER          = 0x0E00,
+    M68_BRANCH_LESS_EQUAL       = 0x0F00,
+};
+
 
 char *_opcode_names[OP_COUNT] = {
     [OP_INIT] = "OP_INIT",
@@ -105,9 +122,13 @@ char *_opcode_names[OP_COUNT] = {
     [OP_LOAD_GLOBAL] = "OP_LOAD_GLOBAL",
     [OP_LOAD_LOCAL] = "OP_LOAD_LOCAL",
     [OP_CLEAR] = "OP_CLEAR",
+    [OP_TO_RET] = "OP_TO_RET",
+    [OP_FROM_RET] = "OP_FROM_RET",
     [OP_DROP] = "OP_DROP",
     [OP_STORE_GLOBAL] = "OP_STORE_GLOBAL",
+    [OP_STORE_GLOBAL_NP] = "OP_STORE_GLOBAL_NP",
     [OP_STORE_LOCAL] = "OP_STORE_LOCAL",
+    [OP_STORE_LOCAL_NP] = "OP_STORE_LOCAL_NP",
     [OP_STORE_INDIRECT_WORD] = "OP_STORE_INDIRECT_WORD",
     [OP_STORE_INDIRECT_BYTE] = "OP_STORE_INDIRECT_BYTE",
     [OP_ALLOC] = "OP_ALLOC",
@@ -119,8 +140,11 @@ char *_opcode_names[OP_COUNT] = {
     [OP_DEREF_WORD] = "OP_DEREF_WORD",
     [OP_INDEX_BYTE] = "OP_INDEX_BYTE",
     [OP_DEREF_BYTE] = "OP_DEREF_BYTE",
+    [OP_CALL_SETUP] = "OP_CALL_SETUP",
+    [OP_PUSH_CALL_ARG] = "OP_PUSH_CALL_ARG",
     [OP_CALL] = "OP_CALL",
     [OP_CALL_INDIRECT] = "OP_CALL_INDIRECT",
+    [OP_CALL_CLEANUP] = "OP_CALL_CLEANUP",
     [OP_JUMP_FWD] = "OP_JUMP_FWD",
     [OP_JUMP_BACK] = "OP_JUMP_BACK",
     [OP_ENTER] = "OP_ENTER",
@@ -168,9 +192,13 @@ int _opcode_arguments[OP_COUNT] = {
     [OP_LOAD_LOCAL] = OP_ARG_VALUE_LONG,
     [OP_LOAD_LOCAL_ADDR] = OP_ARG_VALUE_WORD,
     [OP_CLEAR] = OP_ARG_NONE,
+    [OP_TO_RET] = OP_ARG_NONE,
+    [OP_FROM_RET] = OP_ARG_NONE,
     [OP_DROP] = OP_ARG_NONE,
     [OP_STORE_GLOBAL] = OP_ARG_ADDRESS,
+    [OP_STORE_GLOBAL_NP] = OP_ARG_ADDRESS,
     [OP_STORE_LOCAL] = OP_ARG_VALUE_WORD,
+    [OP_STORE_LOCAL_NP] = OP_ARG_VALUE_WORD,
     [OP_STORE_INDIRECT_WORD] = OP_ARG_NONE,
     [OP_STORE_INDIRECT_BYTE] = OP_ARG_NONE,
     [OP_ALLOC] = OP_ARG_VALUE_LONG,
@@ -182,8 +210,11 @@ int _opcode_arguments[OP_COUNT] = {
     [OP_INDEX_BYTE] = OP_ARG_NONE,
     [OP_DEREF_WORD] = OP_ARG_NONE,
     [OP_DEREF_BYTE] = OP_ARG_NONE,
+    [OP_CALL_SETUP] = OP_ARG_NONE,
+    [OP_PUSH_CALL_ARG] = OP_ARG_NONE,
     [OP_CALL] = OP_ARG_ADDRESS,
     [OP_CALL_INDIRECT] = OP_ARG_NONE,
+    [OP_CALL_CLEANUP] = OP_ARG_VALUE_LONG,
     [OP_JUMP_FWD] = OP_ARG_FORWARD_REF,
     [OP_JUMP_BACK] = OP_ARG_BACKWARD_REF,
     [OP_JUMP_FALSE] = OP_ARG_FORWARD_REF,
@@ -351,6 +382,16 @@ code_t *_leaves[MAXLOOP];
 int _leaves_ptr = 0;
 code_t *_loops[MAXLOOP];
 int _loops_ptr = 0;
+
+
+int _primary_reg = -1;
+int _secondary_reg = -1;
+int _register_stack_depth = 0;
+
+int _save_primary_reg[REGISTER_SAVE_STACK];
+int _save_register_stack_depth[REGISTER_SAVE_STACK];
+int _save_reg_ptr = 0;
+
 
 koda_compiler_options_t *_options = NULL;
 
@@ -731,99 +772,6 @@ void optimize_remove_dead_code(void)
     }
 }
 
-// Transform LOAD + PUSH to LOAD_STACK instructions
-/*
-void optimize_load_push(void)
-{
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (!has_next(it))
-            continue;
-
-        if (it->opcode == OP_LOAD_VALUE && it->next->opcode == OP_PUSH)
-        {
-            it->opcode = OP_LDVAL_STACK;
-            remove_next(it);
-        }
-        else if (it->opcode == OP_LOAD_GLOBAL && it->next->opcode == OP_PUSH)
-        {
-            it->opcode = OP_LDGLOBAL_STACK;
-            remove_next(it);
-        }
-        else if (it->opcode == OP_LOAD_LOCAL && it->next->opcode == OP_PUSH)
-        {
-            it->opcode = OP_LDLOCAL_STACK;
-            remove_next(it);
-        }
-        else if (it->opcode == OP_LOAD_GLOBAL_ADDR && it->next->opcode == OP_PUSH)
-        {
-            it->opcode = OP_LDADDR_STACK;
-            remove_next(it);
-        }
-    }
-}
-*/
-
-// Transform LOAD_VALUE + ADD to ADD_CONSTANT
-/*
-void optimize_load_value_add(void)
-{
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (!has_next(it))
-            continue;
-
-        if (it->opcode == OP_LOAD_VALUE && it->next->opcode == OP_ADD)
-        {
-            it->opcode = OP_ADD_CONSTANT;
-            remove_next(it);
-        }
-    }
-}
-*/
-
-// Merge multiple ADD_CONSTANT + PUSH + ADD_CONSTANT instructions
-/*
-void optimize_merge_add_constant(void)
-{
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (!has_next(it) || !has_next(it->next))
-            continue;
-
-        if (it->opcode == OP_ADD_CONSTANT && it->next->opcode == OP_PUSH && it->next->next->opcode == OP_ADD_CONSTANT)
-        {
-            it->value += it->next->next->value;
-            remove_next(it);    // remove OP_PUSH
-            remove_next(it);    // remove OP_ADD_CONSTANT
-
-            // Do the optimization again
-            it = it->prev;
-        }
-    }
-}
-*/
-
-/*
-void optimize_remove_constant_addition(void)
-{
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (!has_next(it))
-            continue;
-
-        if (it->opcode == OP_LDVAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
-        {
-            it->value += it->next->value;
-            remove_next(it);
-
-            // Move to the previous instruction so we can merge multiple adds together
-            it = it->prev;
-        }
-    }
-}
-*/
-
 // Merge continous jumps
 void optimize_jumps(void)
 {
@@ -951,113 +899,35 @@ void optimize_fold_constant_expressions(void)
     }
 }
 
-// Transform LOAD_VALUE + INDEX to INDEX_CONSTANT
-/*
-void optimize_load_value_index(void)
+void optimize_store_load(void)
 {
+    // This pass does not work with the kind of register allocation we do
     for (code_t *it = _code_start; it != NULL; it = it->next)
     {
-        if (!has_next(it))
-            continue;
-
-        if (it->opcode == OP_LOAD_VALUE && it->next->opcode == OP_INDEX_WORD)
-        {
-            it->opcode = OP_INDEX_CONSTANT;
-            // Update index value so it's correct
-            it->value = it->value * 4;
-            remove_next(it);
-        }
-    }
-}
-*/
-
-// Remove OP_INDEX_CONSTANT 0 instructions, they do nothing for us
-/*
-void optimize_index_constant(void)
-{
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (it->opcode == OP_INDEX_CONSTANT && it->value == 0)
-        {
-            it = it->prev;
-            remove_next(it);
-
-            if (it->opcode == OP_LDGLOBAL_STACK || it->opcode == OP_LDLOCAL_STACK)
+        if (has_next(it))
+        {   
+            // Are we first writing a value to memory, and then directly fetching it again?
+            if (it->opcode == OP_STORE_GLOBAL && it->next->opcode == OP_LOAD_GLOBAL && it->symbol == it->next->symbol)
             {
-                if (has_next(it) && it->next->opcode == OP_PUSH)
-                    remove_next(it);
+                it->opcode = OP_STORE_GLOBAL_NP;
+                remove_next(it);
+            }
+            else if (it->opcode == OP_STORE_LOCAL && it->next->opcode == OP_LOAD_LOCAL && it->value == it->next->value)
+            {
+                it->opcode = OP_STORE_LOCAL_NP;
+                remove_next(it);
             }
         }
     }
 }
-*/
-
-/*
-void optimize_fix_load_value_xxx_constant(void)
-{
-    // We have been to agressive in transforming OP_LDGLOBL/OP_LDLOCL + OP_PUSH to OP_LDxxx_STACK instructions, so we fix that here.
-
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (!has_next(it))
-            continue;
-
-        if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
-        {
-            it->opcode = OP_LOAD_GLOBAL;
-        }
-        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_ADD_CONSTANT)
-        {
-            it->opcode = OP_LOAD_LOCAL;
-        }
-        else if (it->opcode == OP_LDADDR_STACK && it->next->opcode == OP_ADD_CONSTANT)
-        {
-            it->opcode = OP_LOAD_GLOBAL_ADDR;
-        }
-        else if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_INDEX_CONSTANT)
-        {
-            it->opcode = OP_LOAD_GLOBAL;
-        }
-        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_INDEX_CONSTANT)
-        {
-            it->opcode = OP_LOAD_LOCAL;
-        }
-         else if (it->opcode == OP_LDGLOBAL_STACK && it->next->opcode == OP_DEREF_WORD)
-        {
-            it->opcode = OP_LOAD_GLOBAL;
-        }
-        else if (it->opcode == OP_LDLOCAL_STACK && it->next->opcode == OP_DEREF_WORD)
-        {
-            it->opcode = OP_LOAD_LOCAL;
-        }
-        else if (it->opcode == OP_PUSH && it->next->opcode == OP_ADD_CONSTANT)
-        {
-            it = it->prev;
-            remove_next(it);
-        }
-    }    
-}
-*/
 
 void optimize_code(void)
 {
-    // TODO: Add optimization for OP_STORE_LOCAL + OP_LDLOCL combinations
-    //       Add new opcode for OP_LOAD_VALUE + OP_STORE_LOCAL pair
-    //       Divide and multiply by power of 2 should be rewritten as left/right shifts
-    //       Remove unused local variables from functions
-
-    // The order of these optimization passes are really important, we can not move them around without
-    // changing the generated machine code.
-    //optimize_load_push();
-    //optimize_load_value_add();
-    //optimize_merge_add_constant();
-    //optimize_remove_constant_addition();
-    //optimize_load_value_index();
-    //optimize_index_constant();
-    //optimize_fix_load_value_xxx_constant();
+    // TODO: Add a pass for OP_STORE_GLOBAL a, OP_LOAD_GLOBAL a
 
     optimize_jumps();
     optimize_merge_alloc();
+    optimize_store_load();
     optimize_fold_constant_expressions();
     optimize_remove_dead_code();
 }
@@ -1069,6 +939,7 @@ void mark_used_symbols(void)
         switch (it->opcode)
         {
             case OP_STORE_GLOBAL:
+            case OP_STORE_GLOBAL_NP:
             case OP_GLOBAL_VEC:
             case OP_LOAD_GLOBAL_ADDR:
             case OP_LOAD_GLOBAL:
@@ -1296,12 +1167,74 @@ void allocate_global_variables(void)
     }
 }
 
-void emit_code(code_t *code, char *machine_code)
+
+/**
+ * Code Generation
+ */
+
+void m68_push_reg(int reg);
+void m68_pop_reg(int reg);
+
+void allocate_reg(void)
+{
+    if (_primary_reg > NUMBER_OF_REGS)
+    {
+        _primary_reg = 0;
+        m68_push_reg(_primary_reg);
+        _register_stack_depth++;
+    }
+    else if (_register_stack_depth > 0)
+    {
+        _primary_reg++;
+        m68_push_reg(_primary_reg);
+        _register_stack_depth++;
+    }
+    else
+    {
+        _primary_reg++;
+    }
+
+    _secondary_reg = _primary_reg < 1 ? NUMBER_OF_REGS - 1 : _primary_reg - 1;
+}
+
+void free_reg(bool pop_reg)
+{
+    if (_register_stack_depth > 0)
+    {
+        if (pop_reg)
+            m68_pop_reg(_primary_reg);
+
+        _register_stack_depth--;
+        _primary_reg--;
+        if (_primary_reg < 0)
+            _primary_reg = NUMBER_OF_REGS - 1;
+    }
+    else
+    {
+        _primary_reg--;
+    }
+
+    _secondary_reg = _primary_reg < 1 ? NUMBER_OF_REGS - 1 : _primary_reg - 1;
+}
+
+void free_all_regs(void)
+{
+    while (_register_stack_depth > 0)
+    {
+        m68_pop_reg(SCRATCH_REG);        // pop into our scratch register, we don't care about the value
+        _register_stack_depth--;
+    }
+    _primary_reg = -1;
+    _secondary_reg = -1;
+}
+
+
+void emit_assembly(code_t *code, char *machine_code)
 {
     if (machine_code == NULL)
         internal_error("missing machine code for opcode", _opcode_names[code->opcode]);
 
-    code->position = _text_buffer_ptr + _options->text_start_address;
+    // code->position = _text_buffer_ptr + _options->text_start_address;
 
     while (*machine_code)
     {
@@ -1358,60 +1291,696 @@ void emit_code(code_t *code, char *machine_code)
     }
 }
 
-void emit_load_value(code_t *code)
+void m68_push_reg(int reg)
 {
-    //if (code->value < SCHAR_MIN || code->value > SCHAR_MAX)
-        emit_code(code, INST_LOAD_VALUE);
-    //else
-    //    emit_code(code, CG_LDVAL_SHORT);
+    // move.l d0,-(sp) -> 2F 00 -> 0010 1111 0000 0000
+    int opcode = 0x2F00 | reg;
+    emit_short(opcode);
 }
 
-void emit_addq(int value)
+void m68_pop_reg(int reg)
 {
-    emit_short(0x5080 | ((value & 0x07) << 9));
+    // move.l (sp)+,d0 -> 20 1F -> 0010 0000 0001 1111
+    int opcode = 0x201F | (reg << 9);
+    emit_short(opcode);
 }
+
+void m68_push_multiple_regs(int start, int end)
+{
+    // movem d0-d3,-(sp) -> 48 E7 F0 00 -> 0100 1000 1110 0111 , 1111 0000 0000 0000
+    int opcode = 0x48E7;
+    int regs = 0x0000;
+
+    for (int reg = start; reg <= end; ++reg)
+        regs |= (1 << (16 - reg));
+
+    emit_short(opcode);
+    emit_short(regs);
+}
+
+void m68_pop_multiple_regs(int start, int end)
+{
+    // movem.l (sp)+,d0-d3  -> 4C DF 00 0F
+    int opcode = 0x4CDF;
+    int regs = 0x0000;
+
+    for (int reg = start; reg <= end; ++reg)
+        regs |= 1 << reg;
+
+    emit_short(opcode);
+    emit_short(regs);
+}
+
+void m68_move_im_to_reg(int value, int reg)
+{
+    // move.l #$XXXXXXXX,d0 -> 20 3C -> 0010 0000 0011 1100
+    int opcode = 0x203C | (reg << 9);        // move.l #$XXXX,dY
+    emit_short(opcode);
+    emit_word(value);
+}
+
+void m68_moveq_to_reg(char value, int reg)
+{
+    // moveq #$XX,dY -> 70 00
+    int opcode = 0x7000 | (reg << 9) | (unsigned char)value;
+    emit_short(opcode);    
+}
+
+// If offset == 0 then we move a6 -> dY otherwise it's an offset(a6) -> dY move
+void m68_move_fp_to_reg(int offset, int reg)
+{
+
+    // move.l a6,d0 -> 20 0E
+    // move.l $1BEF(a6),d0 -> 20 2E
+    int opcode = 0x200E | (reg << 9) | (offset == 0 ? 0x0000 : 0x0020);
+    emit_short(reg);
+
+    if (offset != 0)
+        emit_short(offset);
+}
+
+void m68_move_reg_to_fp_offset(int reg, int offset)
+{
+    // move.l dY,$XXXX(a6) -> 2D 40
+    int opcode = 0x2D40 | reg;
+    emit_short(opcode);
+    emit_short(offset);
+}
+
+void m68_move_sp_reg(int reg)
+{
+    // move.l sp,dY -> 20 0F
+    int opcode = 0x200F | (reg << 9);
+    emit_short(opcode);
+}
+
+void m68_move_sp_mem(int addr)
+{
+    // move.l sp,$BEEFFEED  -> 23 CF
+    emit_short(0x23CF);
+    emit_word(addr);
+}
+
+void m68_move_reg_to_reg(int source, int dest)
+{
+    // move.l d0,d1 -> 22 00 -> 0010 0010 0000 0000
+    // move.l d7,d2 -> 24 07 -> 0010 0100 0000 0111
+    // move.l d6,d3 -> 26 06 -> 0010 0110 0000 0110
+    int opcode = 0x2000 | (dest << 9) | source;
+    emit_short(opcode);
+}
+
+void m68_move_mem_to_reg(int addr, int reg)
+{
+    // move.l $XXXXXXXX,d0 -> 20 39
+    int opcode = 0x2039 | (reg << 9);
+    emit_short(opcode);
+    emit_word(addr);
+}
+
+void m68_move_reg_to_mem(int reg, int addr)
+{
+    // move.l d0,$XXXXXXXX -> 23 C0
+    int opcode = 0x23C0 | reg;
+    emit_short(opcode);
+    emit_word(addr);
+}
+
+void m68_move_reg_to_a5(int reg)
+{
+    // move.l dY,a5 -> 2A 40
+    int opcode = 0x2A40 | reg;
+    emit_short(opcode);
+}
+
+void m68_move_reg_to_a5_indirect_word(int reg)
+{
+    // move.l dY,(a5) -> 2A 80
+    int opcode = 0x2A80 | reg;
+    emit_short(opcode);
+}
+
+void m68_move_reg_to_a5_indirect_byte(int reg)
+{
+    // move.b dY,(a5) -> 1A 80
+    int opcode = 0x1A80 | reg;
+    emit_short(opcode);
+}
+
+void m68_move_a5_indirect_word_to_reg(int reg)
+{
+    // move.l (a5),dY -> 20 15
+    int opcode = 0x2015 | (reg << 9);
+    emit_short(opcode);
+}
+
+void m68_move_a5_indirect_byte_to_reg(int reg)
+{
+    // move.b (a5),dY -> 10 15
+    int opcode = 0x1015 | (reg << 9);
+    emit_short(opcode);
+}
+
+void m68_add_im_to_reg(int value, int reg)
+{
+    // add.l #$BEEFFEED,d0 -> D0 BC -> 1101 0000 1011 1100
+    // add.l #$BEEFFEED,d1 -> D2 BC -> 1101 0010 1011 1100
+    int opcode = 0xD0BC | (reg << 9);
+    emit_short(opcode);
+    emit_word(value);
+}
+
+void m68_add_reg_to_reg(int source, int dest)
+{
+    // add.l d0,d1 -> D2 80
+    // add.l d0,d2 -> D4 80
+    // add.l d1,d0 -> D0 81
+    int opcode = 0xD080 | (dest << 9) | source;
+    emit_short(opcode);
+}
+
+void m68_logic_shift_left(int amount, int reg)
+{
+    // lsl.l #1,d0 -> E3 88 -> 1110 0011 1000 1000
+    if (amount < 1)
+        internal_error("invalid shift amount", NULL);
+
+    int opcode = 0xE188 | (amount << 9) | reg;
+    emit_short(opcode);
+}
+
+void m68_jsr(int addr)
+{
+    // jsr -> 4E B9
+    int opcode = 0x4EB9;
+    emit_short(opcode);
+    emit_word(addr);
+}
+
+void m68_jsr_indirect(void)
+{
+    // jsr (a5) -> 4E 95
+    int opcode = 0x4E95;
+    emit_short(opcode);
+}
+
+void m68_neg(int reg)
+{
+    int opcode = 0x4480 | reg;
+    emit_short(opcode);
+}
+
+void m68_not(int reg)
+{
+    int opcode = 0x4680 | reg;
+    emit_short(opcode);
+}
+
+void m68_cmp_im_to_reg(int value, int reg)
+{
+    if (value == 0)
+    {
+       // cmp.l #0,d0 -> 4A 80
+        int opcode = 0x4A80 | reg;
+        emit_short(opcode);
+    }
+    else
+    {
+        // cmp.l $XX,d0 -> B0 BC
+        int opcode = 0xB0BC | (reg << 9);
+        emit_short(opcode);
+        emit_word(value);
+    }
+}
+
+int m68_branch(int type, int offset)
+{
+    if (offset < SCHAR_MIN || offset > SCHAR_MAX)
+    {
+        int opcode = 0x6000 | type;
+        emit_short(opcode);
+        emit_word(offset);
+
+        return _text_buffer_ptr - 4;
+    }
+    else
+    {
+        int opcode = 0x6000 | type | offset;
+        emit_short(opcode);
+
+        return -1;
+    }
+}
+
+void emit_write32(code_t *code)
+{
+    code->symbol->value = _text_buffer_ptr + _options->text_start_address;
+    emit_word(code->value);
+}
+
+void emit_alloc_mem(code_t *code)
+{
+    code->symbol->value = _text_buffer_ptr + _options->text_start_address;
+    emit_allocate(code->value);
+}
+
+void emit_asm(code_t *code)
+{
+    if (code->symbol != NULL)
+        code->symbol->value = _text_buffer_ptr + _options->text_start_address;
+    emit_assembly(code, code->assembly);
+}
+
+void emit_load_value(code_t *code)
+{
+    allocate_reg();
+
+    if (code->value < SCHAR_MIN || code->value > SCHAR_MAX)
+        m68_move_im_to_reg(code->value, _primary_reg);
+    else
+        m68_moveq_to_reg(code->value, _primary_reg);
+}
+
+void emit_load_global_addr(code_t *code)
+{
+    int value = code->symbol != NULL ? code->symbol->value : code->value;
+    allocate_reg();
+    m68_move_im_to_reg(value, _primary_reg);
+}
+
+void emit_load_local_addr(code_t *code)
+{
+    // move.l a6,dY
+    // add.l #LONG_VALUE,dY
+    allocate_reg();
+    m68_move_fp_to_reg(0, _primary_reg);
+    m68_add_im_to_reg(code->value, _primary_reg);
+}
+
+void emit_load_global(code_t *code)
+{
+    // move.l $XXXXXXXX,dY
+    int addr = code->symbol != NULL ? code->symbol->value : code->value;
+    allocate_reg();
+    m68_move_mem_to_reg(addr, _primary_reg);
+}
+
+void emit_load_local(code_t *code)
+{
+    // move.l $XXX(a6),dY   
+    allocate_reg();
+    m68_move_fp_to_reg(code->value, _primary_reg);
+}
+
+void emit_clear(code_t *code)
+{
+    // move.q #$00,dX
+
+    //allocate_reg();
+    //m68_moveq_to_reg(0, _primary_reg);
+    m68_moveq_to_reg(0, RETURN_REG);
+}
+
+void emit_to_ret(code_t *code)
+{
+    m68_move_reg_to_reg(_primary_reg, RETURN_REG);
+    free_reg(true);
+}
+
+void emit_from_ret(code_t *code)
+{
+    allocate_reg();
+    m68_move_reg_to_reg(RETURN_REG, _primary_reg);
+}
+
+void emit_drop(code_t *code)
+{
+    free_reg(true);
+}
+
+void emit_store_global(code_t *code)
+{
+    // move.l dY,$XXXXXXXX
+    int addr = code->symbol != NULL ? code->symbol->value : code->value;
+    m68_move_reg_to_mem(_primary_reg, addr);
+
+    if (code->opcode == OP_STORE_GLOBAL)
+        free_reg(true);
+}
+
+void emit_store_local(code_t *code)
+{
+    // move.l dY,$XXX(a6)
+    m68_move_reg_to_fp_offset(_primary_reg, code->value);
+
+    if (code->opcode == OP_STORE_LOCAL)
+        free_reg(true);
+}
+
+void emit_store_indirect_word(code_t *code)
+{
+    // [S0] := A; P := P + 1
+    // move.l (sp)+,d0
+    // move.l (sp)+,a5
+    // move.l d0,(a5)  
+    m68_move_reg_to_a5(_secondary_reg);
+    m68_move_reg_to_a5_indirect_word(_primary_reg);
+    free_reg(true);
+    free_reg(true);
+}
+
+void emit_store_indirect_byte(code_t *code)
+{
+    // b[S0] := A; P := P + 1
+    // move.l (sp)+,d0
+    // move.l (sp)+,a5
+    // move.b d0,(a5)
+    m68_move_reg_to_a5(_secondary_reg);
+    m68_move_reg_to_a5_indirect_byte(_primary_reg);
+    free_reg(true);
+    free_reg(true);
+}
+
+void emit_index_word(code_t *code)
+{
+    // A := 4 * A + S0; P := P + 1
+    // move.l (sp)+,d0
+    // move.l (sp)+,d1
+    // lsl.l #2,d0
+    // add.l d1,d0
+    // move.l d0,-(sp)
+    m68_logic_shift_left(2, _primary_reg);
+    m68_add_reg_to_reg(_primary_reg, _secondary_reg);
+    free_reg(true);
+}
+
+void emit_index_byte(code_t *code)
+{
+    // A := A + S0; P := P + 1
+    m68_add_reg_to_reg(_primary_reg, _secondary_reg);
+    free_reg(true);
+}
+
+void emit_deref_word(code_t *code)
+{
+    // A := [A]
+    // move.l dY,a5
+    // move.l (a5),dY
+    m68_move_reg_to_a5(_primary_reg);
+    m68_move_a5_indirect_word_to_reg(_primary_reg);
+}
+
+void emit_deref_byte(code_t *code)
+{
+    // A := b[A]
+    // move.l dY,a5
+    // moveq #0,dY
+    // move.b (a5),dY
+    m68_move_reg_to_a5(_primary_reg);
+    m68_moveq_to_reg(0, _primary_reg);
+    m68_move_a5_indirect_word_to_reg(_primary_reg);
+}
+
+void emit_call_setup(code_t *code)
+{
+    _save_primary_reg[_save_reg_ptr] = _primary_reg;
+    _save_register_stack_depth[_save_reg_ptr] = _register_stack_depth;
+    _save_reg_ptr++;
+
+    if (_register_stack_depth > 0)
+    {
+        // Push all the registers
+        m68_push_multiple_regs(0, NUMBER_OF_REGS - 1);
+    }
+    else
+    {
+        // Else we only push the active ones
+        m68_push_multiple_regs(0, _primary_reg);
+    }
+
+    _primary_reg = -1;
+    _secondary_reg = -1;
+    _register_stack_depth = 0;
+}
+
+void emit_call_cleanup(code_t *code)
+{
+    if (_save_reg_ptr == 0)
+        internal_error("register save stack empty, this could not happen", NULL);
+
+    int arg_count = code->value;
+    _save_reg_ptr--;
+
+    _primary_reg = _save_primary_reg[_save_reg_ptr];
+    _register_stack_depth = _save_register_stack_depth[_save_reg_ptr];
+    _secondary_reg = _primary_reg < 1 ? NUMBER_OF_REGS - 1 : _primary_reg - 1;
+
+    if (_register_stack_depth > 0)
+    {
+        // Pop all the registers
+        m68_pop_multiple_regs(0, NUMBER_OF_REGS - 1);
+    }
+    else
+    {
+        // Else we only pop the active ones
+        m68_pop_multiple_regs(0, _primary_reg);
+    }    
+}
+
+void emit_push_call_arg(code_t *code)
+{
+    m68_push_reg(_primary_reg);
+    free_reg(false);
+}
+
+void emit_call(code_t *code)
+{
+    m68_jsr(code->symbol->value);
+}
+
+void emit_call_indirect(code_t *code)
+{
+    if (code->symbol->flags & SYM_GLOBF)
+        emit_load_global_addr(code);
+    else
+        emit_load_local_addr(code);
+
+    m68_move_reg_to_a5(_primary_reg);
+    free_reg(false);
+
+    m68_jsr_indirect();
+}
+
+void emit_enter(code_t *code)
+{
+    code->symbol->value = _text_buffer_ptr + _options->text_start_address;
+    emit_assembly(code, INST_ENTER);      
+}
+
+void emit_neg(code_t *code)
+{
+    assert(_primary_reg >= 0);
+    m68_neg(_primary_reg);
+}
+
+void emit_inv(code_t *code)
+{
+    assert(_primary_reg >= 0);
+    m68_not(_primary_reg);
+}
+
+void emit_lognot(code_t *code)
+{
+    assert(_primary_reg >= 0);
+
+    //     move.l (sp)+,d1
+    //     moveq #0,d0
+    //     cmp.l #0,d1
+    //     bne done
+    //     move.l #$ffffffff,d0
+    // done:
+    //     move.l d0,-(sp)
+    m68_move_reg_to_reg(_primary_reg, SCRATCH_REG);
+    m68_moveq_to_reg(0, _primary_reg);
+    m68_cmp_im_to_reg(0, SCRATCH_REG);
+    m68_branch(M68_BRANCH_NOT_EQUAL, 6);
+    //m68_move_im_to_reg(-1, _primary_reg);
+    m68_moveq_to_reg(0xFF, _primary_reg);
+}
+
+void emit_add(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+    m68_add_reg_to_reg(_primary_reg, _secondary_reg);
+    free_reg(true);
+}
+
+
 
 void emit_m68k_machine_code(void)
 {
     for (code_t *it = _code_start; it != NULL; it = it->next)
     {
-        it->position = _text_buffer_ptr;
+        it->position = _text_buffer_ptr + _options->text_start_address;
+
         switch (it->opcode)
         {
             case OP_WRITE_32:
-                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                emit_word(it->value);
+                emit_write32(it);
                 break;
-
             case OP_ALLOC_MEM:
-                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                emit_allocate(it->value);
+                emit_alloc_mem(it);
                 break;
-
-            case OP_ENTER:
-                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                emit_code(it, INST_ENTER);
-                break;
-
-            //case OP_ADD_CONSTANT:
-            //    if (it->value >= 0 && it->value < 8)
-            //        emit_addq(it->value);
-            //    else
-            //        emit_code(it, CG_ADD_CONSTANT);
-            //    break;
-
             case OP_ASM:
-                if (it->symbol != NULL)
-                    it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                emit_code(it, it->assembly);
+                emit_asm(it);
                 break;
-
             case OP_LOAD_VALUE:
                 emit_load_value(it);
                 break;
+            case OP_LOAD_GLOBAL_ADDR:
+                emit_load_global_addr(it);
+                break;
+            case OP_LOAD_LOCAL_ADDR:
+                emit_load_local_addr(it);
+                break;
+            case OP_LOAD_GLOBAL:
+                emit_load_global(it);
+                break;
+            case OP_LOAD_LOCAL:
+                emit_load_local(it);
+                break;
+            case OP_CLEAR:
+                emit_clear(it);
+                break;
+            case OP_TO_RET:
+                emit_to_ret(it);
+                break;
+            case OP_FROM_RET:
+                emit_from_ret(it);
+                break;
+            case OP_DROP:
+                // TODO: We should remove this opcode
+                emit_drop(it);
+                break;
+            case OP_STORE_GLOBAL:
+            case OP_STORE_GLOBAL_NP:
+                emit_store_global(it);
+                break;
+            case OP_STORE_LOCAL:
+            case OP_STORE_LOCAL_NP:
+                emit_store_local(it);
+                break;
+            case OP_STORE_INDIRECT_WORD:
+                emit_store_indirect_word(it);
+                break;
+            case OP_STORE_INDIRECT_BYTE:
+                emit_store_indirect_byte(it);
+                break;
+            case OP_ALLOC:
+                emit_assembly(it, INST_ALLOC);
+                break;
+            case OP_DEALLOC:
+                emit_assembly(it, INST_DEALLOC);
+                break;
+            case OP_LOCAL_VEC:
+                emit_assembly(it, INST_LOCAL_VEC);
+                break;
+            case OP_GLOBAL_VEC:
+                emit_assembly(it, INST_GLOBAL_VEC);
+                break;
+            case OP_HALT:
+                emit_assembly(it, INST_HALT);
+                break;
+            case OP_INDEX_WORD:
+                emit_index_word(it);
+                break;
+            case OP_INDEX_BYTE:
+                emit_index_byte(it);
+                break;
+            case OP_DEREF_WORD:
+                emit_deref_word(it);
+                break;
+            case OP_DEREF_BYTE:
+                emit_deref_byte(it);
+                break;
+            case OP_CALL_SETUP:
+                emit_call_setup(it);
+                break;
+            case OP_PUSH_CALL_ARG:
+                emit_push_call_arg(it);
+                break;
+            case OP_CALL:
+                emit_call(it);
+                break;
+            case OP_CALL_INDIRECT:
+                emit_call_indirect(it);
+                break;
+            case OP_CALL_CLEANUP:
+                emit_call_cleanup(it);
+                break;
+            case OP_ENTER:
+                emit_enter(it);
+                break;                
+            case OP_EXIT:
+                emit_assembly(it, INST_EXIT);
+                break;   
+            case OP_NEG:
+                emit_neg(it);
+                break;
+            case OP_INV:
+                emit_inv(it);
+                break;
+            case OP_LOGNOT:
+                emit_lognot(it);
+                break;
+            case OP_ADD:
+                emit_add(it);
+                break;
+            // case OP_SUB:
+            //     break;
+            // case OP_MUL:
+            //     break;
+            // case OP_DIV:
+            //     break;
+            // case OP_MOD:
+            //     break;
+            // case OP_AND:
+            //     break;
+            // case OP_OR:
+            //     break;
+            // case OP_XOR:
+            //     break;
+            // case OP_SHIFT_LEFT:
+            //     break;
+            // case OP_SHIFT_RIGHT:
+            //     break;
+            // case OP_EQ:
+            //     break;
+            // case OP_NOT_EQ:
+            //     break;
+            // case OP_LESS:
+            //     break;
+            // case OP_LESS_EQ:
+            //     break;
+            // case OP_GREATER:
+            //     break;
+            // case OP_GREATER_EQ:
+            //     break;
+            // case OP_JUMP_FWD:
+            //     break;
+            // case OP_JUMP_BACK:
+            //     break;
+            // case OP_JUMP_FALSE:
+            //     break;
+            // case OP_JUMP_TRUE:
+            //     break;
+            // case OP_INC:
+            //     break;
+            // case OP_DEC:
+            //     break;
 
             default:
-                emit_code(it, _opcode_to_machine_code[it->opcode]);
+                emit_assembly(it, _opcode_to_machine_code[it->opcode]);
                 break;
         }
     }    
@@ -1475,7 +2044,7 @@ void emit_bytecode(int *bytecode)
             case OP_ASM:
                 if (it->symbol != NULL)
                     it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                //emit_code(it, it->assembly);
+                //emit_assembly(it, it->assembly);
                 emit_opcode(bytecode, OP_ASM);
                 break;
 
@@ -2326,6 +2895,7 @@ void var_declaration(int glob)
         }
         else
         {
+            // TODO: Make sure this works
             code_opcode_value(OP_ALLOC, size * BPW);
             
             _local_frame_ptr -= size * BPW;
@@ -2530,9 +3100,13 @@ void function_call(symbol_t *fn)
     if (fn == NULL)
         compiler_error("call of non-function", NULL);
 
+    code_opcode(OP_CALL_SETUP);
+
     while (_token != TOKEN_RIGHT_PAREN)
     {
         expression(0);
+        code_opcode(OP_PUSH_CALL_ARG);
+
         argument_count++;
 
         if (_token != TOKEN_COMMA)
@@ -2565,10 +3139,12 @@ void function_call(symbol_t *fn)
             code_symbol(OP_CALL_INDIRECT, fn);
     }
 
-    if (argument_count != 0)
-    {
-        code_opcode_value(OP_DEALLOC, argument_count * BPW);
-    }
+//    if (argument_count != 0)
+//    {
+//        code_opcode_value(OP_DEALLOC, argument_count * BPW);
+//    }
+
+    code_opcode_value(OP_CALL_CLEANUP, argument_count);
 
     _accumulator_loaded = 1;
 }
@@ -2763,6 +3339,7 @@ void factor(void)
         if (_token == TOKEN_LEFT_PAREN)
         {
             function_call(y);
+            code_opcode(OP_FROM_RET);
         }
     }
     else if (_token == TOKEN_STRING)
@@ -2948,6 +3525,7 @@ void return_statement(void)
         compiler_error("can't return from main", 0);
 
     expression(1);
+    code_opcode(OP_TO_RET);
 
     if (_local_frame_ptr != 0)
     {
@@ -3140,7 +3718,6 @@ void assignment_or_call(void)
     if (_token == TOKEN_LEFT_PAREN)
     {
         function_call(sym);
-        code_opcode(OP_DROP);
     }
     else if (_token == TOKEN_ASSIGN)
     {
