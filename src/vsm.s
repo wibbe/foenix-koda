@@ -3,6 +3,46 @@
 
 	org $0
 
+	or.l d0,d1
+	or.l d1,d1
+	or.l d1,d2
+
+	sub.l #1234,d0
+	sub.l #1234,d1
+	sub.l #1234,d2
+	sub.l #2234,d0
+	sub.l #1234,d0
+	sub.l #4,d0
+
+	cmp.l d0,d0
+	cmp.l d0,d1
+	cmp.l d0,d2
+	cmp.l d1,d0
+	cmp.l d2,d0
+
+	and.l d0,d0
+	and.l d0,d1
+	and.l d0,d2
+	and.l d1,d2
+
+
+	exg d1,d0
+	
+	sub.l d1,d0
+
+	sub.l d0,d1
+
+	sub.l d0,d2
+	sub.l d2,d0
+	sub.l d3,d0
+
+
+	exg d0,d1
+
+	trap #0
+	trap #1
+	trap #15
+
 	move.l #$FFFFFFFF,d0
 
 	bne.s done

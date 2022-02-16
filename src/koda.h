@@ -5,6 +5,7 @@
 enum {
 	KODA_OUTPUT_TYPE_PGZ    	= 0,
     KODA_OUTPUT_TYPE_SREC   	= 1,
+    KODA_OUTPUT_TYPE_BIN		= 2,
 };
 
 typedef struct koda_embed_t {

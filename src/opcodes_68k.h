@@ -70,6 +70,9 @@
 #include "opcode_syscall2.h"
 #include "opcode_syscall3.h"
 #include "opcode_xor.h"
+#include "opcode_gfx_init.h"
+#include "opcode_gfx_clear.h"
+#include "opcode_gfx_swap.h"
 
 #endif
 

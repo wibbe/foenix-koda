@@ -26,6 +26,7 @@ enum {
     STACK_SIZE              = 100,
     SYMBOL_TABLE_SIZE       = 2048,
     STRING_TABLE_SIZE       = 8192,
+    INPUT_STACK_SIZE        = 4,
 
     SYM_GLOBF               = 0x01,
     SYM_CONST               = 0x02,
@@ -76,6 +77,7 @@ enum {
     TOKEN_KEYWORD_FUNC,
     TOKEN_KEYWORD_HALT, 
     TOKEN_KEYWORD_INC,
+    TOKEN_KEYWORD_IMPORT,
     TOKEN_KEYWORD_IF,
     TOKEN_KEYWORD_PEEK8,
     TOKEN_KEYWORD_PEEK16,
@@ -124,7 +126,6 @@ char *_opcode_names[OP_COUNT] = {
     [OP_CLEAR] = "OP_CLEAR",
     [OP_TO_RET] = "OP_TO_RET",
     [OP_FROM_RET] = "OP_FROM_RET",
-    [OP_DROP] = "OP_DROP",
     [OP_STORE_GLOBAL] = "OP_STORE_GLOBAL",
     [OP_STORE_GLOBAL_NP] = "OP_STORE_GLOBAL_NP",
     [OP_STORE_LOCAL] = "OP_STORE_LOCAL",
@@ -141,13 +142,13 @@ char *_opcode_names[OP_COUNT] = {
     [OP_INDEX_BYTE] = "OP_INDEX_BYTE",
     [OP_DEREF_BYTE] = "OP_DEREF_BYTE",
     [OP_CALL_SETUP] = "OP_CALL_SETUP",
-    [OP_PUSH_CALL_ARG] = "OP_PUSH_CALL_ARG",
+    [OP_FUNC_START] = "OP_FUNC_START",
+    [OP_FUNC_END] = "OP_FUNC_END",
     [OP_CALL] = "OP_CALL",
     [OP_CALL_INDIRECT] = "OP_CALL_INDIRECT",
     [OP_CALL_CLEANUP] = "OP_CALL_CLEANUP",
     [OP_JUMP_FWD] = "OP_JUMP_FWD",
     [OP_JUMP_BACK] = "OP_JUMP_BACK",
-    [OP_ENTER] = "OP_ENTER",
     [OP_EXIT] = "OP_EXIT",
     [OP_NEG] = "OP_NEG",
     [OP_INV] = "OP_INV",
@@ -194,13 +195,14 @@ int _opcode_arguments[OP_COUNT] = {
     [OP_CLEAR] = OP_ARG_NONE,
     [OP_TO_RET] = OP_ARG_NONE,
     [OP_FROM_RET] = OP_ARG_NONE,
-    [OP_DROP] = OP_ARG_NONE,
     [OP_STORE_GLOBAL] = OP_ARG_ADDRESS,
     [OP_STORE_GLOBAL_NP] = OP_ARG_ADDRESS,
     [OP_STORE_LOCAL] = OP_ARG_VALUE_WORD,
     [OP_STORE_LOCAL_NP] = OP_ARG_VALUE_WORD,
     [OP_STORE_INDIRECT_WORD] = OP_ARG_NONE,
     [OP_STORE_INDIRECT_BYTE] = OP_ARG_NONE,
+    [OP_FUNC_START] = OP_ARG_VALUE_LONG,
+    [OP_FUNC_END] = OP_ARG_NONE,
     [OP_ALLOC] = OP_ARG_VALUE_LONG,
     [OP_DEALLOC] = OP_ARG_VALUE_LONG,
     [OP_LOCAL_VEC] = OP_ARG_NONE,
@@ -211,16 +213,14 @@ int _opcode_arguments[OP_COUNT] = {
     [OP_DEREF_WORD] = OP_ARG_NONE,
     [OP_DEREF_BYTE] = OP_ARG_NONE,
     [OP_CALL_SETUP] = OP_ARG_NONE,
-    [OP_PUSH_CALL_ARG] = OP_ARG_NONE,
     [OP_CALL] = OP_ARG_ADDRESS,
     [OP_CALL_INDIRECT] = OP_ARG_NONE,
-    [OP_CALL_CLEANUP] = OP_ARG_VALUE_LONG,
+    [OP_CALL_CLEANUP] = OP_ARG_NONE,
     [OP_JUMP_FWD] = OP_ARG_FORWARD_REF,
     [OP_JUMP_BACK] = OP_ARG_BACKWARD_REF,
     [OP_JUMP_FALSE] = OP_ARG_FORWARD_REF,
     [OP_JUMP_TRUE] = OP_ARG_FORWARD_REF,
     [OP_JUMP_TARGET] = OP_ARG_TARGET_REF,
-    [OP_ENTER] = OP_ARG_NONE,
     [OP_EXIT] = OP_ARG_NONE,
     [OP_NEG] = OP_ARG_NONE,
     [OP_INV] = OP_ARG_NONE,
@@ -259,7 +259,6 @@ char *_opcode_to_machine_code[OP_COUNT] = {
     [OP_LOAD_LOCAL] = INST_LOAD_LOCAL,
     [OP_LOAD_LOCAL_ADDR] = INST_LOAD_LOCAL_ADDR,
     [OP_CLEAR] = INST_CLEAR,
-    [OP_DROP] = INST_DROP,
     [OP_STORE_GLOBAL] = INST_STORE_GLOBAL,
     [OP_STORE_LOCAL] = INST_STORE_LOCAL,
     [OP_STORE_INDIRECT_WORD] = INST_STORE_INDIRECT_WORD,
@@ -280,7 +279,6 @@ char *_opcode_to_machine_code[OP_COUNT] = {
     [OP_JUMP_FALSE] = INST_JUMP_FALSE,
     [OP_JUMP_TRUE] = INST_JUMP_TRUE,
     [OP_JUMP_TARGET] = INST_JUMP_TARGET,
-    [OP_ENTER] = INST_ENTER,
     [OP_EXIT] = INST_EXIT,
     [OP_NEG] = INST_NEG,
     [OP_INV] = INST_INV,
@@ -342,7 +340,7 @@ struct symbol_t {
 };
 
 
-char *_program_source_file;
+char _program_source_file[128];
 int _current_line = 1;
 bool _has_main_body = false;
 
@@ -403,6 +401,8 @@ int _mul32_routine_address;
 #define compiler_error(message, extra) \
     print_compiler_error(__FILE__, __LINE__, (message), (extra))
 
+#define internal_error(message, extra) \
+    print_internal_error(__FILE__, __LINE__, (message), (extra))
 
 void print_compiler_error(char *file, int line, char *message, char *extra)
 {
@@ -426,14 +426,14 @@ void print_compiler_error(char *file, int line, char *message, char *extra)
 #endif  
 }
 
-void internal_error(char *message, char *extra)
+void print_internal_error(char *file, int line, char *message, char *extra)
 {
 #if PLATFORM_WIN    
     fprintf(stderr, "internal error\n");
 #else
     sys_chan_write(0, "internal error\n", 15);
 #endif  
-    compiler_error(message, extra);
+    print_compiler_error(file, line, message, extra);
 }
 
 
@@ -561,7 +561,7 @@ void print_code(code_t *code)
 
         case OP_WRITE_32:
         case OP_ALLOC_MEM:
-        case OP_ENTER:
+        case OP_FUNC_START:
             printf("%s:\n", code->symbol->name);
             printf("%s%d\n", buffer, code->value);
             break;
@@ -627,7 +627,7 @@ void remove_next(code_t *code)
 
 void optimize_remove_dead_code(void)
 {
-    // Mark all code as unused
+    // Mark all code as unused, except for OP_FUNC_END opcodes
     for (code_t *it = _code_start; it != NULL; it = it->next)
         it->used = false;
 
@@ -635,7 +635,6 @@ void optimize_remove_dead_code(void)
     int call_stack_ptr = 0;
     code_t *pc = _code_start;
     int conditional_jump_count[64] = {0};
-
 
     // Step through all instructions, marking the ones that will actually be used.
     while (pc != NULL)
@@ -678,9 +677,7 @@ void optimize_remove_dead_code(void)
             case OP_STORE_GLOBAL:
             case OP_GLOBAL_VEC:
             case OP_LOAD_GLOBAL_ADDR:
-            //case OP_LDADDR_STACK:            
             case OP_LOAD_GLOBAL:
-            //case OP_LDGLOBAL_STACK:
                 if (pc->symbol != NULL)
                 {   
                     if (pc->symbol->code != NULL)
@@ -757,6 +754,21 @@ void optimize_remove_dead_code(void)
                 _mul32_code->used = true;
             else if (it->opcode == OP_DIV || it->opcode == OP_MOD)
                 _div32_code->used = true;
+        }
+    }
+
+    // Special pass to handle OP_FUNC_END in used functions
+    bool func_in_use = false;
+    for (code_t *it = _code_start; it != NULL; it = it->next)
+    {
+        if (it->opcode == OP_FUNC_START && it->used)
+        {
+            func_in_use = true;
+        }
+        else if (it->opcode == OP_FUNC_END && func_in_use)
+        {
+            it->used = true;
+            func_in_use = false;
         }
     }
 
@@ -1349,11 +1361,10 @@ void m68_moveq_to_reg(char value, int reg)
 // If offset == 0 then we move a6 -> dY otherwise it's an offset(a6) -> dY move
 void m68_move_fp_to_reg(int offset, int reg)
 {
-
     // move.l a6,d0 -> 20 0E
     // move.l $1BEF(a6),d0 -> 20 2E
     int opcode = 0x200E | (reg << 9) | (offset == 0 ? 0x0000 : 0x0020);
-    emit_short(reg);
+    emit_short(opcode);
 
     if (offset != 0)
         emit_short(offset);
@@ -1441,6 +1452,14 @@ void m68_move_a5_indirect_byte_to_reg(int reg)
     emit_short(opcode);
 }
 
+void m68_exg(int source, int dest)
+{
+    // exg d0,d1 -> C1 41
+    // exg d1,d0 -> C3 40
+    int opcode = 0xC140 | (dest << 9) | source;
+    emit_short(opcode);
+}
+
 void m68_add_im_to_reg(int value, int reg)
 {
     // add.l #$BEEFFEED,d0 -> D0 BC -> 1101 0000 1011 1100
@@ -1459,6 +1478,35 @@ void m68_add_reg_to_reg(int source, int dest)
     emit_short(opcode);
 }
 
+void m68_sub_reg_to_reg(int source, int dest)
+{
+    // sub.l d0,d1 -> 92 80
+    int opcode = 0x9080 | (dest << 9) | source;
+    emit_short(opcode);
+}
+
+void m68_sub_im_to_reg(int value, int dest)
+{
+    // sub.l #1234,d0 -> 90 BC
+    int opcode = 0x90BC | (dest << 9);
+    emit_short(opcode);
+    emit_word(value);
+}
+
+void m68_and_reg_to_reg(int source, int dest)
+{
+    // and.l d0,d1 -> C2 80
+    int opcode = 0xC080 | (dest << 9) | source;
+    emit_short(opcode);
+}
+
+void m68_or_reg_to_reg(int source, int dest)
+{
+    // or.l d0,d1 -> 82 80
+    int opcode = 0x8080 | (dest << 9) | source;
+    emit_short(opcode);
+}
+
 void m68_logic_shift_left(int amount, int reg)
 {
     // lsl.l #1,d0 -> E3 88 -> 1110 0011 1000 1000
@@ -1466,6 +1514,14 @@ void m68_logic_shift_left(int amount, int reg)
         internal_error("invalid shift amount", NULL);
 
     int opcode = 0xE188 | (amount << 9) | reg;
+    emit_short(opcode);
+}
+
+void m68_trap(int number)
+{
+    assert(number >= 0 && number <= 15);
+
+    int opcode = 0x4E40 | number;
     emit_short(opcode);
 }
 
@@ -1513,15 +1569,24 @@ void m68_cmp_im_to_reg(int value, int reg)
     }
 }
 
+void m68_cmp_reg_to_reg(int source, int dest)
+{
+    // cmp.l d0,d0 -> B0 80
+    // cmp.l d0,d1 -> B2 80
+    // cmp.l d1,d0 -> B0 81
+    int opcode = 0xB080 | (dest << 9) | source;
+    emit_short(opcode);
+}
+
 int m68_branch(int type, int offset)
 {
     if (offset < SCHAR_MIN || offset > SCHAR_MAX)
     {
         int opcode = 0x6000 | type;
         emit_short(opcode);
-        emit_word(offset);
+        emit_short(offset);
 
-        return _text_buffer_ptr - 4;
+        return _text_buffer_ptr - 2;
     }
     else
     {
@@ -1613,9 +1678,15 @@ void emit_from_ret(code_t *code)
     m68_move_reg_to_reg(RETURN_REG, _primary_reg);
 }
 
-void emit_drop(code_t *code)
+void emit_halt(code_t *code)
 {
-    free_reg(true);
+    if (code->value < SCHAR_MIN || code->value > SCHAR_MAX)
+        m68_move_im_to_reg(code->value, 1);
+    else
+        m68_moveq_to_reg(code->value, 1);
+
+    m68_moveq_to_reg(0, 0);
+    m68_trap(15);
 }
 
 void emit_store_global(code_t *code)
@@ -1703,38 +1774,43 @@ void emit_deref_byte(code_t *code)
 
 void emit_call_setup(code_t *code)
 {
-    _save_primary_reg[_save_reg_ptr] = _primary_reg;
-    _save_register_stack_depth[_save_reg_ptr] = _register_stack_depth;
-    _save_reg_ptr++;
-
     if (_register_stack_depth > 0)
     {
-        // Push all the registers
-        m68_push_multiple_regs(0, NUMBER_OF_REGS - 1);
-    }
-    else
-    {
-        // Else we only push the active ones
-        m68_push_multiple_regs(0, _primary_reg);
+        for (int i = _primary_reg + 1; i < NUMBER_OF_REGS; ++i)
+            m68_push_reg(i);
     }
 
-    _primary_reg = -1;
-    _secondary_reg = -1;
-    _register_stack_depth = 0;
+    if (_primary_reg >= 0)
+    {
+        for (int i = 0; i <= _primary_reg; ++i)
+            m68_push_reg(i);
+    }
 }
 
 void emit_call_cleanup(code_t *code)
 {
-    if (_save_reg_ptr == 0)
-        internal_error("register save stack empty, this could not happen", NULL);
-
     int arg_count = code->value;
-    _save_reg_ptr--;
+    while (arg_count > 0)
+    {
+        free_reg(false);
+        arg_count--;
+    }
 
-    _primary_reg = _save_primary_reg[_save_reg_ptr];
-    _register_stack_depth = _save_register_stack_depth[_save_reg_ptr];
-    _secondary_reg = _primary_reg < 1 ? NUMBER_OF_REGS - 1 : _primary_reg - 1;
+    if (_primary_reg - 1 >= 0)
+    {
+        for (int i = _primary_reg; i >= 0; --i)
+            m68_pop_reg(i);
+    }
 
+    if (_register_stack_depth > 0)
+    {
+        for (int i = NUMBER_OF_REGS - 1; i > _primary_reg; --i)
+            m68_push_reg(i);
+    }    
+    
+    // TODO: this is completely wrong, we should only restore the registers that where not
+    //       part of the function call
+/*
     if (_register_stack_depth > 0)
     {
         // Pop all the registers
@@ -1745,12 +1821,34 @@ void emit_call_cleanup(code_t *code)
         // Else we only pop the active ones
         m68_pop_multiple_regs(0, _primary_reg);
     }    
+*/
 }
 
-void emit_push_call_arg(code_t *code)
+void emit_func_start(code_t *code)
 {
-    m68_push_reg(_primary_reg);
-    free_reg(false);
+    code->symbol->value = _text_buffer_ptr + _options->text_start_address;
+    emit_assembly(code, INST_ENTER);
+
+    // Save the values of the old registers
+    _save_primary_reg[_save_reg_ptr] = _primary_reg;
+    _save_register_stack_depth[_save_reg_ptr] = _register_stack_depth;
+    _save_reg_ptr++;
+
+    _primary_reg = -1;
+    _secondary_reg = -1;
+    _register_stack_depth = 0;
+}
+
+void emit_func_end(code_t *code)
+{
+    if (_save_reg_ptr == 0)
+        internal_error("register save stack empty, this could not happen", NULL);
+
+    _save_reg_ptr--;
+
+    _primary_reg = _save_primary_reg[_save_reg_ptr];
+    _register_stack_depth = _save_register_stack_depth[_save_reg_ptr];
+    _secondary_reg = _primary_reg < 1 ? NUMBER_OF_REGS - 1 : _primary_reg - 1;
 }
 
 void emit_call(code_t *code)
@@ -1769,12 +1867,6 @@ void emit_call_indirect(code_t *code)
     free_reg(false);
 
     m68_jsr_indirect();
-}
-
-void emit_enter(code_t *code)
-{
-    code->symbol->value = _text_buffer_ptr + _options->text_start_address;
-    emit_assembly(code, INST_ENTER);      
 }
 
 void emit_neg(code_t *code)
@@ -1811,11 +1903,221 @@ void emit_lognot(code_t *code)
 void emit_add(code_t *code)
 {
     assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
     m68_add_reg_to_reg(_primary_reg, _secondary_reg);
     free_reg(true);
 }
 
+void emit_sub(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
 
+    m68_exg(_primary_reg, _secondary_reg);
+    m68_sub_reg_to_reg(_primary_reg, _secondary_reg);
+    free_reg(true);
+}
+
+void emit_mul(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_push_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_jsr(_mul32_code->position);
+    m68_move_reg_to_reg(0, SCRATCH_REG);
+    m68_pop_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_move_reg_to_reg(SCRATCH_REG, _secondary_reg);
+    free_reg(true);
+}
+
+void emit_div(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_push_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_jsr(_div32_code->position);
+    m68_move_reg_to_reg(0, SCRATCH_REG);
+    m68_pop_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_move_reg_to_reg(SCRATCH_REG, _secondary_reg);
+    free_reg(true); 
+}
+
+void emit_mod(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_push_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_jsr(_div32_code->position);
+    m68_move_reg_to_reg(1, SCRATCH_REG);
+    m68_pop_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_move_reg_to_reg(SCRATCH_REG, _secondary_reg);
+    free_reg(true); 
+}
+
+void emit_and(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+    m68_and_reg_to_reg(_primary_reg, _secondary_reg);
+    free_reg(true);
+}
+
+void emit_or(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+    m68_or_reg_to_reg(_primary_reg, _secondary_reg);
+    free_reg(true);
+}
+
+void emit_jump_fwd(code_t *code)
+{
+    // Use a dummy address for the jump. It will be patched by the jump target opcode later on.
+    code->position = m68_branch(M68_BRANCH_TRUE, 0x1234);
+}
+
+void emit_jump_back(code_t *code)
+{
+    int addr = code->code->position;
+    m68_branch(M68_BRANCH_TRUE, addr - _text_buffer_ptr);
+}
+
+void emit_jump_true(code_t *code)
+{
+    // move.l (sp)+,d0
+    // cmp.l #0,d0
+    // bne JUMP_FWD
+
+    m68_move_reg_to_reg(_primary_reg, SCRATCH_REG);
+    free_reg(true);
+    m68_cmp_im_to_reg(0, SCRATCH_REG);
+    code->position = m68_branch(M68_BRANCH_NOT_EQUAL, 0x1234);
+}
+
+void emit_jump_false(code_t *code)
+{
+    // move.l (sp)+,d0
+    // cmp.l #0,d0
+    // beq JUMP_FWD
+
+    m68_move_reg_to_reg(_primary_reg, SCRATCH_REG);
+    free_reg(true);
+    m68_cmp_im_to_reg(0, SCRATCH_REG);
+    code->position = m68_branch(M68_BRANCH_EQUAL, 0x1234);
+}
+
+void emit_jump_target(code_t *code)
+{
+    if (code->code->opcode == OP_JUMP_FWD || code->code->opcode == OP_JUMP_TRUE || code->code->opcode == OP_JUMP_FALSE)
+    {
+        int addr = code->code->position;
+        text_patch_short(addr, _text_buffer_ptr - addr);
+    }
+}
+
+void emit_eq(code_t *code)
+{
+    //     moveq #0,d0
+    //     cmp.l d1,d2
+    //     beq .done
+    //     move.l #$FFFFFFFF,d0
+    // .done:
+
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
+    m68_moveq_to_reg(0, _secondary_reg);
+    m68_cmp_reg_to_reg(_primary_reg, SCRATCH_REG);
+    m68_branch(M68_BRANCH_NOT_EQUAL, 2);
+    m68_moveq_to_reg(0xFF, _secondary_reg);
+
+    free_reg(true);
+}
+
+void emit_not_eq(code_t *code)
+{
+    m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
+    m68_moveq_to_reg(0, _secondary_reg);
+    m68_cmp_reg_to_reg(_primary_reg, SCRATCH_REG);
+    m68_branch(M68_BRANCH_EQUAL, 2);
+    m68_moveq_to_reg(0xFF, _secondary_reg);
+
+    free_reg(true);
+}
+
+void emit_less(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
+    m68_moveq_to_reg(0, _secondary_reg);
+    m68_cmp_reg_to_reg(SCRATCH_REG, _primary_reg);
+    m68_branch(M68_BRANCH_GREATER_EQUAL, 2);
+    m68_moveq_to_reg(0xFF, _secondary_reg);
+
+    free_reg(true);    
+}
+
+void emit_less_equal(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
+    m68_moveq_to_reg(0, _secondary_reg);
+    m68_cmp_reg_to_reg(SCRATCH_REG, _primary_reg);
+    m68_branch(M68_BRANCH_GREATER, 2);
+    m68_moveq_to_reg(0xFF, _secondary_reg);
+
+    free_reg(true);    
+}
+
+void emit_greater(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
+    m68_moveq_to_reg(0, _secondary_reg);
+    m68_cmp_reg_to_reg(SCRATCH_REG, _primary_reg);
+    m68_branch(M68_BRANCH_LESS_EQUAL, 2);
+    m68_moveq_to_reg(0xFF, _secondary_reg);
+
+    free_reg(true);    
+}
+
+void emit_greater_equal(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
+    m68_moveq_to_reg(0, _secondary_reg);
+    m68_cmp_reg_to_reg(SCRATCH_REG, _primary_reg);
+    m68_branch(M68_BRANCH_LESS, 2);
+    m68_moveq_to_reg(0xFF, _secondary_reg);
+
+    free_reg(true);    
+}
+
+
+void emit_inc(code_t *code)
+{
+    // move.l (sp)+,a5
+    // addq.l #1,(a5)
+    m68_move_reg_to_a5(_primary_reg);
+    m68_move_a5_indirect_word_to_reg(SCRATCH_REG);
+    m68_add_im_to_reg(1, SCRATCH_REG);
+    m68_move_reg_to_a5_indirect_word(SCRATCH_REG);
+
+    free_reg(true);    
+}
+
+void emit_dec(code_t *code)
+{
+    // move.l (sp)+,a5
+    // addq.l #1,(a5)
+    m68_move_reg_to_a5(_primary_reg);
+    m68_move_a5_indirect_word_to_reg(SCRATCH_REG);
+    m68_sub_im_to_reg(1, SCRATCH_REG);
+    m68_move_reg_to_a5_indirect_word(SCRATCH_REG);
+
+    free_reg(true);    
+}
 
 void emit_m68k_machine_code(void)
 {
@@ -1858,9 +2160,8 @@ void emit_m68k_machine_code(void)
             case OP_FROM_RET:
                 emit_from_ret(it);
                 break;
-            case OP_DROP:
-                // TODO: We should remove this opcode
-                emit_drop(it);
+            case OP_HALT:
+                emit_halt(it);
                 break;
             case OP_STORE_GLOBAL:
             case OP_STORE_GLOBAL_NP:
@@ -1888,9 +2189,6 @@ void emit_m68k_machine_code(void)
             case OP_GLOBAL_VEC:
                 emit_assembly(it, INST_GLOBAL_VEC);
                 break;
-            case OP_HALT:
-                emit_assembly(it, INST_HALT);
-                break;
             case OP_INDEX_WORD:
                 emit_index_word(it);
                 break;
@@ -1906,9 +2204,6 @@ void emit_m68k_machine_code(void)
             case OP_CALL_SETUP:
                 emit_call_setup(it);
                 break;
-            case OP_PUSH_CALL_ARG:
-                emit_push_call_arg(it);
-                break;
             case OP_CALL:
                 emit_call(it);
                 break;
@@ -1918,9 +2213,12 @@ void emit_m68k_machine_code(void)
             case OP_CALL_CLEANUP:
                 emit_call_cleanup(it);
                 break;
-            case OP_ENTER:
-                emit_enter(it);
-                break;                
+            case OP_FUNC_START:
+                emit_func_start(it);
+                break;
+            case OP_FUNC_END:
+                emit_func_end(it);
+                break;    
             case OP_EXIT:
                 emit_assembly(it, INST_EXIT);
                 break;   
@@ -1936,48 +2234,69 @@ void emit_m68k_machine_code(void)
             case OP_ADD:
                 emit_add(it);
                 break;
-            // case OP_SUB:
-            //     break;
-            // case OP_MUL:
-            //     break;
-            // case OP_DIV:
-            //     break;
-            // case OP_MOD:
-            //     break;
-            // case OP_AND:
-            //     break;
-            // case OP_OR:
-            //     break;
+            case OP_SUB:
+                emit_sub(it);
+                break;
+            case OP_MUL:
+                emit_mul(it);
+                break;
+            case OP_DIV:
+                emit_div(it);
+                break;
+            case OP_MOD:
+                emit_mod(it);
+                break;
+            case OP_AND:
+                emit_and(it);
+                break;
+            case OP_OR:
+                emit_or(it);
+                break;
             // case OP_XOR:
             //     break;
             // case OP_SHIFT_LEFT:
             //     break;
             // case OP_SHIFT_RIGHT:
             //     break;
-            // case OP_EQ:
-            //     break;
-            // case OP_NOT_EQ:
-            //     break;
-            // case OP_LESS:
-            //     break;
-            // case OP_LESS_EQ:
-            //     break;
-            // case OP_GREATER:
-            //     break;
-            // case OP_GREATER_EQ:
-            //     break;
-            // case OP_JUMP_FWD:
-            //     break;
-            // case OP_JUMP_BACK:
-            //     break;
-            // case OP_JUMP_FALSE:
-            //     break;
-            // case OP_JUMP_TRUE:
-            //     break;
-            // case OP_INC:
-            //     break;
-            // case OP_DEC:
-            //     break;
+            case OP_EQ:
+                emit_eq(it);
+                break;
+            case OP_NOT_EQ:
+                emit_not_eq(it);
+                break;
+            case OP_LESS:
+                emit_less(it);
+                break;
+            case OP_LESS_EQ:
+                emit_less_equal(it);
+                break;
+            case OP_GREATER:
+                emit_greater(it);
+                break;
+            case OP_GREATER_EQ:
+                emit_greater_equal(it);
+                break;
+            case OP_JUMP_FWD:
+                emit_jump_fwd(it);
+                break;
+            case OP_JUMP_BACK:
+                emit_jump_back(it);
+                break;
+            case OP_JUMP_FALSE:
+                emit_jump_true(it);
+                break;
+            case OP_JUMP_TRUE:
+                emit_jump_false(it);
+                break;
+            case OP_JUMP_TARGET:
+                emit_jump_target(it);
+                break;
+            case OP_INC:
+                emit_inc(it);
+                break;
+            case OP_DEC:
+                emit_dec(it);
+                break;
 
             default:
                 emit_assembly(it, _opcode_to_machine_code[it->opcode]);
@@ -2036,9 +2355,9 @@ void emit_bytecode(int *bytecode)
                 _text_buffer_ptr += ((it->value / 4) + 1) * 4;
                 break;
 
-            case OP_ENTER:
+            case OP_FUNC_START:
                 it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                emit_opcode(bytecode, OP_ENTER);
+                emit_opcode(bytecode, OP_FUNC_START);
                 break;
 
             case OP_ASM:
@@ -2301,13 +2620,19 @@ void save_output(char *output_filename)
 
         // TODO: Add binary files as custom segments here
     }
-    else
+    else if (_options->output_type == KODA_OUTPUT_TYPE_SREC)
     {
         write_srec_header();
         write_srec_segment(_options->text_start_address, _text_buffer, _text_buffer_ptr);
         write_srec_segment(_options->data_start_address, _data_buffer, _data_buffer_ptr);
 
         // TODO: Add binary files as custom segments here
+    }
+    else
+    {
+#if PLATFORM_WIN
+        fwrite(_text_buffer, _text_buffer_ptr, 1, _output_target);
+#endif        
     }
 
 #if PLATFORM_WIN
@@ -2332,9 +2657,14 @@ char _program_source[PROGRAM_SIZE];
 int _program_source_ptr = 0;
 int _program_source_len;
 
+int _input_source_ptr_stack[INPUT_STACK_SIZE];
+char _input_source_file_stack[INPUT_STACK_SIZE][128];
+int _input_curren_line_stack[INPUT_STACK_SIZE];
+int _input_stack_ptr = 0;
+
 void read_input_source(char *source_file)
 {
-    _program_source_file = source_file;
+    memcpy(_program_source_file, source_file, strlen(source_file) + 1);
     _current_line = 0;
     _program_source_ptr = 0;
 
@@ -2360,6 +2690,30 @@ void read_input_source(char *source_file)
 #endif
 }
 
+void push_source_file(char *source_file)
+{
+    assert(_input_stack_ptr < INPUT_STACK_SIZE);
+
+    _input_source_ptr_stack[_input_stack_ptr] = _program_source_ptr;
+    _input_curren_line_stack[_input_stack_ptr] = _current_line;
+    memcpy(_input_source_file_stack[_input_stack_ptr], _program_source_file, strlen(_program_source_file) + 1);
+
+    _input_stack_ptr++;
+
+    read_input_source(source_file);
+}
+
+void pop_source_file(void)
+{
+    assert(_input_stack_ptr > 0);
+    _input_stack_ptr--;
+
+    read_input_source(_input_source_file_stack[_input_stack_ptr]);
+
+    _current_line = _input_curren_line_stack[_input_stack_ptr];
+    _program_source_ptr = _input_source_ptr_stack[_input_stack_ptr];
+}
+
 void read_stdlib_source(void)
 {
     static char * name = "stdlib.k";
@@ -2370,14 +2724,14 @@ void read_stdlib_source(void)
     memcpy(_program_source, foenix_stdlib_data, foenix_stdlib_len);
     _program_source_len = foenix_stdlib_len;
     _program_source_ptr = 0;
-    _program_source_file = name;
+    memcpy(_program_source_file, name, strlen(name) + 1);
 }
 
 void read_input_string(const char *name, const char *str)
 {
     _current_line = 0;
     _program_source_ptr = 0;
-    _program_source_file = (char *)name;
+    memcpy(_program_source_file, name, strlen(name) + 1);
     _program_source_len = strlen(str);
     memcpy(_program_source, str, _program_source_len + 1);
 
@@ -2528,6 +2882,7 @@ int find_keyword(char *str)
         case 'i':
             if (!strcmp(str, "if")) return TOKEN_KEYWORD_IF;
             if (!strcmp(str, "inc")) return TOKEN_KEYWORD_INC;
+            if (!strcmp(str, "import")) return TOKEN_KEYWORD_IMPORT;
             return 0;
         case 'l':
             if (!strcmp(str, "leave")) return TOKEN_KEYWORD_LEAVE;
@@ -3053,7 +3408,7 @@ void function_declaration(void)
     expect_right_paren();
 
     func_sym->flags |= number_arguments << 8;
-    func_sym->code = code_symbol(OP_ENTER, func_sym);
+    func_sym->code = code_symbol(OP_FUNC_START, func_sym);
 
     _parsing_function = true;
     
@@ -3062,6 +3417,7 @@ void function_declaration(void)
     _parsing_function = false;
     code_opcode_value(OP_CLEAR, 0);
     code_opcode_value(OP_EXIT, 0);
+    code_opcode(OP_FUNC_END);
     
     resolve_jump(jump, code_opcode(OP_JUMP_TARGET));
 
@@ -3092,6 +3448,20 @@ void declaration(int glob)
     }
 }
 
+void program(void);
+
+void import(void)
+{
+    scan();
+    if (_token != TOKEN_STRING)
+        compiler_error("expected filename to import", _token_str);
+
+    push_source_file(_token_str);
+    program();
+    pop_source_file();
+    scan();
+}
+
 void function_call(symbol_t *fn)
 {
     int argument_count = 0;
@@ -3100,12 +3470,10 @@ void function_call(symbol_t *fn)
     if (fn == NULL)
         compiler_error("call of non-function", NULL);
 
-    code_opcode(OP_CALL_SETUP);
 
     while (_token != TOKEN_RIGHT_PAREN)
     {
         expression(0);
-        code_opcode(OP_PUSH_CALL_ARG);
 
         argument_count++;
 
@@ -3123,8 +3491,7 @@ void function_call(symbol_t *fn)
     expect(TOKEN_RIGHT_PAREN, "')'");
     scan();
 
-    if (loaded())
-        spill();
+    code_opcode(OP_CALL_SETUP);
 
     if (fn->flags & SYM_DECLARATION)
     {
@@ -3139,14 +3506,10 @@ void function_call(symbol_t *fn)
             code_symbol(OP_CALL_INDIRECT, fn);
     }
 
-//    if (argument_count != 0)
-//    {
-//        code_opcode_value(OP_DEALLOC, argument_count * BPW);
-//    }
+    if (argument_count != 0)
+        code_opcode_value(OP_DEALLOC, argument_count * BPW);
 
     code_opcode_value(OP_CALL_CLEANUP, argument_count);
-
-    _accumulator_loaded = 1;
 }
 
 int make_string(char *str)
@@ -3833,6 +4196,10 @@ void program(void)
     int i;
 
     scan();
+    while (_token == TOKEN_KEYWORD_IMPORT)
+        import();
+
+
     while (_token == TOKEN_KEYWORD_VAR || _token == TOKEN_KEYWORD_CONST || _token == TOKEN_KEYWORD_FUNC || _token == TOKEN_KEYWORD_DECL || _token == TOKEN_KEYWORD_STRUCT)
         declaration(SYM_GLOBF);
 
@@ -3851,6 +4218,7 @@ void resolve_main(void)
 
     _start_location = _text_buffer_ptr + _options->text_start_address;
     code_symbol(OP_CALL, main);
+    code_opcode_value(OP_DEALLOC, 2 * BPW);     // Deallocate the argc, argv arguments to main
     code_opcode_value(OP_HALT, 0);
 }
 
@@ -3933,6 +4301,9 @@ void init(void)
     builtin("memset", 3, INST_MEMSET);
     builtin("min", 2, INST_MIN);
     builtin("max", 2, INST_MAX);
+    builtin("gfx_init", 0, INST_GFX_INIT);
+    builtin("gfx_clear", 0, INST_GFX_CLEAR);
+    builtin("gfx_swap", 0, INST_GFX_SWAP);
 
     add("true", SYM_CONST, -1);
     add("false", SYM_CONST, 0);

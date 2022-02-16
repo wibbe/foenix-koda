@@ -237,7 +237,7 @@ end:
 void test_var_assignment(void)
 {
 	test_main("var-const-assignment", "a = 1", OP_LOAD_VALUE, 1, OP_STORE_GLOBAL, VAR_A, 0);
-	test_main("var-var-assignment", "a = 1\nb = a", OP_LOAD_VALUE, 1, OP_STORE_GLOBAL, VAR_A, OP_LOAD_GLOBAL, VAR_A, OP_STORE_GLOBAL, VAR_B, 0);
+	test_main("var-var-assignment", "a = 1\nb = a", OP_LOAD_VALUE, 1, OP_STORE_GLOBAL_NP, VAR_A, OP_STORE_GLOBAL, VAR_B, 0);
 }
 
 
@@ -269,17 +269,23 @@ void test_function_declaration(void)
 		"}",
 		OP_INIT, -1, 
 		OP_JUMP_FWD, -1, 
+	// test:
 		OP_ENTER, 
 		OP_CLEAR,
 		OP_EXIT,
+	// main:
 		OP_ENTER,
+		OP_CALL_SETUP,
 		OP_LOAD_VALUE, 1,
+		OP_PUSH_CALL_ARG,
 		OP_CALL, 4,
 		OP_DEALLOC, 4,
-		OP_DROP,
+		OP_CALL_CLEANUP,
 		OP_CLEAR,
 		OP_EXIT,
+	// start:
 		OP_CALL, -1,
+		OP_DEALLOC, 8,
 		OP_HALT, 0, 0);
 }
 

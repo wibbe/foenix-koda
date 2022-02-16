@@ -16,6 +16,7 @@ void print_usage(char *name)
     printf("  -o FILE                 Specify the output file.\n");
     printf("  -p, --pgz               Generated file will be in PGZ binary format.\n");
     printf("  -s, --srec              Generated file will be in Motorola S68 text format.\n");
+    printf("  -b, --bin               Generated plain binary file, will only contain the text segment.\n");
     printf("  -O0                     Turn off optimizations.\n");
     printf("  -l FILE, --labels FILE  Generate a labels file.\n");
     printf("  -d, --debug             Print debug information about the generated code.\n");
@@ -57,7 +58,13 @@ int main(int argc, char *argv[])
             options.output_type = KODA_OUTPUT_TYPE_SREC;
             arg++;
             continue;
-        }       
+        }
+        if (strcmp(argv[arg], "--bin") == 0 || strcmp(argv[arg], "-b") == 0)
+        {
+            options.output_type = KODA_OUTPUT_TYPE_BIN;
+            arg++;
+            continue;            
+        }
 
         if (strcmp(argv[arg], "--debug") == 0 || strcmp(argv[arg], "-d") == 0)
         {
