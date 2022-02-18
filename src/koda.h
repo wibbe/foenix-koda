@@ -23,6 +23,9 @@ typedef struct koda_compiler_options_t {
 	int generate_labels;
 	char *labels_filename;
 
+	char *libraries[32];
+	int libraries_count;
+
 	koda_embed_t embed_files[32];
 	int embed_files_count;
 
@@ -30,8 +33,10 @@ typedef struct koda_compiler_options_t {
 	int debug;
 
 	int text_start_address;
+	int text_lib_start_address;
 	int data_start_address;
 	int text_size;
+	int text_lib_size;
 	int data_size;
 } koda_compiler_options_t;
 

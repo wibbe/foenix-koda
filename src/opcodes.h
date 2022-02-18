@@ -66,23 +66,12 @@ enum {
     OP_POKE8,
     OP_POKE16,
     OP_POKE32,
-
-    // TODO: Add special OP_PEEK8/16/32_CONSTANT opcode
-
     OP_ASM,                 // We have a blob of assembly code
+    OP_LIB,
     OP_JUMP_TARGET,
     OP_ALLOC_MEM,
     OP_WRITE_32,
-/*
-    OP_LDVAL_SHORT,
-    OP_LDVAL_STACK,
-    OP_LDADDR_STACK,
-    OP_LDGLOBAL_STACK,
-    OP_LDLOCAL_STACK,
 
-    OP_ADD_CONSTANT,
-    OP_INDEX_CONSTANT,
-*/
     OP_COUNT,
 };
 

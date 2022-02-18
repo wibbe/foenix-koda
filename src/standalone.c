@@ -19,6 +19,7 @@ void print_usage(char *name)
     printf("  -b, --bin               Generated plain binary file, will only contain the text segment.\n");
     printf("  -O0                     Turn off optimizations.\n");
     printf("  -l FILE, --labels FILE  Generate a labels file.\n");
+    printf("  --lib FILE              Link with the specified library\n");
     printf("  -d, --debug             Print debug information about the generated code.\n");
     printf("  --embed NAME FILE       Embed the specified file into the generated executable.\n");
     printf("                          This will also create a global variable with the specified\n");
@@ -29,9 +30,11 @@ int main(int argc, char *argv[])
 {
 	koda_compiler_options_t options = {
         .text_size = 0x10000,               // 64K of memory for the text segment
+        .text_lib_size = 0x10000,           // 64K of memory for libraries text segment
         .data_size = 0x20000,               // 128K of memory for the data segment
         .text_start_address = 0x00020000,
-        .data_start_address = 0x00040000,
+        .text_lib_start_address = 0x00040000,
+        .data_start_address = 0x00060000,
     };
 
     if (argc == 1)
@@ -70,6 +73,20 @@ int main(int argc, char *argv[])
         {
             options.debug = 1;
             arg++;
+            continue;
+        }
+
+        if (strcmp(argv[arg], "--lib") == 0)
+        {
+            if (arg >= argc - 1)
+            {
+                printf("Error: missing library filename\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+
+            options.libraries[options.libraries_count++] = argv[arg + 1];
+            arg += 2;
             continue;
         }
 

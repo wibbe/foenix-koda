@@ -351,9 +351,11 @@ bool _has_main_body = false;
 #endif
 
 unsigned char *_text_buffer;
+unsigned char *_text_lib_buffer;
 unsigned char *_data_buffer;
 
 int _text_buffer_ptr = 0;
+int _text_lib_buffer_ptr = 0;
 int _data_buffer_ptr = 0;
 int _local_frame_ptr = 0;
 
@@ -1660,9 +1662,6 @@ void emit_load_local(code_t *code)
 void emit_clear(code_t *code)
 {
     // move.q #$00,dX
-
-    //allocate_reg();
-    //m68_moveq_to_reg(0, _primary_reg);
     m68_moveq_to_reg(0, RETURN_REG);
 }
 
@@ -1807,21 +1806,6 @@ void emit_call_cleanup(code_t *code)
         for (int i = NUMBER_OF_REGS - 1; i > _primary_reg; --i)
             m68_push_reg(i);
     }    
-    
-    // TODO: this is completely wrong, we should only restore the registers that where not
-    //       part of the function call
-/*
-    if (_register_stack_depth > 0)
-    {
-        // Pop all the registers
-        m68_pop_multiple_regs(0, NUMBER_OF_REGS - 1);
-    }
-    else
-    {
-        // Else we only pop the active ones
-        m68_pop_multiple_regs(0, _primary_reg);
-    }    
-*/
 }
 
 void emit_func_start(code_t *code)
@@ -2308,7 +2292,7 @@ void emit_m68k_machine_code(void)
 void generate_m68k_machine_code(void)
 {
     // First pass, calculate the correct positions for all symbols and code instructions
-    _text_buffer_ptr = 0;
+   _text_buffer_ptr = 0;
     emit_m68k_machine_code();
 
     // Next pass we output the correct final code
@@ -2616,6 +2600,10 @@ void save_output(char *output_filename)
     {
         write_pgz_header();
         write_pgz_segment(_options->text_start_address, _text_buffer, _text_buffer_ptr);
+        
+        if (_text_lib_buffer_ptr > 0)
+            write_pgz_segment(_options->text_lib_start_address, _text_lib_buffer, _text_lib_buffer_ptr);
+        
         write_pgz_segment(_options->data_start_address, _data_buffer, _data_buffer_ptr);
 
         // TODO: Add binary files as custom segments here
@@ -2624,6 +2612,10 @@ void save_output(char *output_filename)
     {
         write_srec_header();
         write_srec_segment(_options->text_start_address, _text_buffer, _text_buffer_ptr);
+
+        if (_text_lib_buffer_ptr > 0)
+            write_srec_segment(_options->text_lib_start_address, _text_lib_buffer, _text_lib_buffer_ptr);
+
         write_srec_segment(_options->data_start_address, _data_buffer, _data_buffer_ptr);
 
         // TODO: Add binary files as custom segments here
@@ -4199,7 +4191,6 @@ void program(void)
     while (_token == TOKEN_KEYWORD_IMPORT)
         import();
 
-
     while (_token == TOKEN_KEYWORD_VAR || _token == TOKEN_KEYWORD_CONST || _token == TOKEN_KEYWORD_FUNC || _token == TOKEN_KEYWORD_DECL || _token == TOKEN_KEYWORD_STRUCT)
         declaration(SYM_GLOBF);
 
@@ -4244,7 +4235,7 @@ void embed_data_files(void)
 
         _data_buffer_ptr += len;
         if (_data_buffer_ptr >= _options->data_size)
-            compiler_error("data segment exhaused, the embedded file is to large", embed->source_file);
+            compiler_error("data segment exhausted, the embedded file is to large", embed->source_file);
 #endif  
         // Add a constant containing the size of the data
         char buffer[64];
@@ -4253,6 +4244,52 @@ void embed_data_files(void)
     }
 }
 
+void include_library(char *filename)
+{
+    int start = _text_lib_buffer_ptr;
+
+#if PLATFORM_WIN
+    FILE *file = fopen(filename, "r");
+    if (file == NULL)
+        compiler_error("could not open library file", filename);
+
+    // Read the entire file into the data buffer
+    int len = fread(_text_lib_buffer + _text_lib_buffer_ptr, 1, _options->text_lib_size - _text_lib_buffer_ptr, file);
+    fclose(file);
+
+    _text_lib_buffer_ptr += len;
+    if (_text_lib_buffer_ptr > _options->text_lib_size)
+        compiler_error("text segment exhausted, library too large", filename);
+#endif
+
+    // Function count
+    int function_count = _text_lib_buffer[start] << 8 | _text_lib_buffer[start + 1];
+
+    int it = start + 2;
+    for (int i = 0; i < function_count; ++i)
+    {
+        int func_offset = (_text_lib_buffer[it] << 24) | (_text_lib_buffer[it + 1] << 16) | (_text_lib_buffer[it + 2] << 8) | _text_lib_buffer[it + 3];
+        it += 4;
+
+        int func_arity = _text_lib_buffer[it];
+        it += 1;
+
+        char *func_name = _text_lib_buffer + it;
+        it += strlen(func_name) + 1;
+
+        add(func_name, SYM_GLOBF | SYM_FUNCTION | (func_arity << 8), _options->text_lib_start_address + start + func_offset);
+    }
+}
+
+void include_libraries(void)
+{
+    for (int i = 0; i < _options->libraries_count; ++i)
+    {
+        include_library(_options->libraries[i]);
+    }
+}
+
+
 /**
  * Main
  */
@@ -4260,6 +4297,7 @@ void embed_data_files(void)
 void init(void)
 {
     _text_buffer_ptr = 0;
+    _text_lib_buffer_ptr = 0;
     _data_buffer_ptr = 0;
     _symbol_table_ptr = 0;
 
@@ -4301,9 +4339,6 @@ void init(void)
     builtin("memset", 3, INST_MEMSET);
     builtin("min", 2, INST_MIN);
     builtin("max", 2, INST_MAX);
-    builtin("gfx_init", 0, INST_GFX_INIT);
-    builtin("gfx_clear", 0, INST_GFX_CLEAR);
-    builtin("gfx_swap", 0, INST_GFX_SWAP);
 
     add("true", SYM_CONST, -1);
     add("false", SYM_CONST, 0);
@@ -4320,6 +4355,7 @@ int koda_compile(koda_compiler_options_t *options)
 
 #if PLATFORM_WIN
     _text_buffer = malloc(_options->text_size);
+    _text_lib_buffer = malloc(_options->text_lib_size);
     _data_buffer = malloc(_options->data_size);
     _string_table = malloc(STRING_TABLE_SIZE);
     _symbol_table = malloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
@@ -4327,6 +4363,7 @@ int koda_compile(koda_compiler_options_t *options)
     void *current_heap_pos = heap_position();
 
     _text_buffer = heap_alloc(_options->text_size);
+    _text_lib_buffer = heap_alloc(_options->text_lib_size);
     _data_buffer = heap_alloc(_options->data_size);
     _string_table = heap_alloc(STRING_TABLE_SIZE);
     _symbol_table = heap_alloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
@@ -4337,6 +4374,9 @@ int koda_compile(koda_compiler_options_t *options)
     // TODO: Use long jump here so we can have the koda_compile(...) function return on error, instead of exiting the program.
     if (_options->embed_files_count > 0)
         embed_data_files();
+
+    if (_options->libraries_count > 0)
+        include_libraries();
 
     // Compile stdlib
     read_stdlib_source();
@@ -4409,6 +4449,7 @@ int koda_compile(koda_compiler_options_t *options)
 
 #if PLATFORM_WIN
     free(_text_buffer);
+    free(_text_lib_buffer);
     free(_data_buffer);
     free(_string_table);
     free(_symbol_table);

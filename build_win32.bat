@@ -11,6 +11,7 @@ if %ERRORLEVEL% EQU 1 (
 )
 
 vasmm68k_mot -m68000 -quiet -Fbin -L bin\vsm.lst -o bin\vsm.bin src/vsm.s
+vasmm68k_mot -m68000 -quiet -Fbin -L bin\gfx.lst -o bin\gfx.lib src/gfx.s
 
 call :opcode syscall0
 call :opcode syscall1
@@ -79,6 +80,9 @@ call :opcode peek32
 call :opcode poke8
 call :opcode poke16
 call :opcode poke32
+call :opcode gfx_init
+call :opcode gfx_clear
+call :opcode gfx_swap
 
 echo compiling koda...
 gcc -o koda.exe -DPLATFORM_WIN -Isrc -Ibin\src src\koda.c src\standalone.c
