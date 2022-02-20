@@ -3,6 +3,13 @@
 
 	org $0
 
+	move.w d0,(a5)
+
+	move.w (a5),d0
+	move.w (a5),d1
+
+	suba.l   #$12000008,A7
+
 	or.l d0,d1
 	or.l d1,d1
 	or.l d1,d2

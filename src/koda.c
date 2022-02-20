@@ -251,64 +251,6 @@ int _opcode_arguments[OP_COUNT] = {
     [OP_POKE32] = OP_ARG_NONE,
 };
 
-char *_opcode_to_machine_code[OP_COUNT] = {
-    [OP_INIT] = INST_INIT,
-    [OP_LOAD_VALUE] = INST_LOAD_VALUE,
-    [OP_LOAD_GLOBAL] = INST_LOAD_GLOBAL,
-    [OP_LOAD_GLOBAL_ADDR] = INST_LOAD_GLOBAL_ADDR,
-    [OP_LOAD_LOCAL] = INST_LOAD_LOCAL,
-    [OP_LOAD_LOCAL_ADDR] = INST_LOAD_LOCAL_ADDR,
-    [OP_CLEAR] = INST_CLEAR,
-    [OP_STORE_GLOBAL] = INST_STORE_GLOBAL,
-    [OP_STORE_LOCAL] = INST_STORE_LOCAL,
-    [OP_STORE_INDIRECT_WORD] = INST_STORE_INDIRECT_WORD,
-    [OP_STORE_INDIRECT_BYTE] = INST_STORE_INDIRECT_BYTE,
-    [OP_ALLOC] = INST_ALLOC,
-    [OP_DEALLOC] = INST_DEALLOC,
-    [OP_LOCAL_VEC] = INST_LOCAL_VEC,
-    [OP_GLOBAL_VEC] = INST_GLOBAL_VEC,
-    [OP_HALT] = INST_HALT,
-    [OP_INDEX_WORD] = INST_INDEX_WORD,
-    [OP_INDEX_BYTE] = INST_INDEX_BYTE,
-    [OP_DEREF_WORD] = INST_DEREF_WORD,
-    [OP_DEREF_BYTE] = INST_DEREF_BYTE,
-    [OP_CALL] = INST_CALL,
-    [OP_CALL_INDIRECT] = INST_CALL_INDIRECT,
-    [OP_JUMP_FWD] = INST_JUMP_FWD,
-    [OP_JUMP_BACK] = INST_JUMP_BACK,
-    [OP_JUMP_FALSE] = INST_JUMP_FALSE,
-    [OP_JUMP_TRUE] = INST_JUMP_TRUE,
-    [OP_JUMP_TARGET] = INST_JUMP_TARGET,
-    [OP_EXIT] = INST_EXIT,
-    [OP_NEG] = INST_NEG,
-    [OP_INV] = INST_INV,
-    [OP_LOGNOT] = INST_LOGNOT,
-    [OP_ADD] = INST_ADD,
-    [OP_SUB] = INST_SUB,
-    [OP_MUL] = INST_MUL,
-    [OP_DIV] = INST_DIV,
-    [OP_MOD] = INST_MOD,
-    [OP_AND] = INST_AND,
-    [OP_OR] = INST_OR,
-    [OP_XOR] = INST_XOR,
-    [OP_SHIFT_LEFT] = INST_SHIFT_LEFT,
-    [OP_SHIFT_RIGHT] = INST_SHIFT_RIGHT,
-    [OP_EQ] = INST_EQ,
-    [OP_NOT_EQ] = INST_NOT_EQ,
-    [OP_LESS] = INST_LESS,
-    [OP_LESS_EQ] = INST_LESS_EQ,
-    [OP_GREATER] = INST_GREATER,
-    [OP_GREATER_EQ] = INST_GREATER_EQ,
-    [OP_INC] = INST_INC,
-    [OP_DEC] = INST_DEC,
-    [OP_PEEK8] = INST_PEEK8,
-    [OP_PEEK16] = INST_PEEK16,
-    [OP_PEEK32] = INST_PEEK32,
-    [OP_POKE8] = INST_POKE8,
-    [OP_POKE16] = INST_POKE16,
-    [OP_POKE32] = INST_POKE32,
-};
-
 typedef struct symbol_t symbol_t;
 typedef struct code_t code_t;
 
@@ -1426,12 +1368,6 @@ void m68_move_reg_to_a5(int reg)
     emit_short(opcode);
 }
 
-void m68_move_reg_to_a5_indirect_word(int reg)
-{
-    // move.l dY,(a5) -> 2A 80
-    int opcode = 0x2A80 | reg;
-    emit_short(opcode);
-}
 
 void m68_move_reg_to_a5_indirect_byte(int reg)
 {
@@ -1440,10 +1376,17 @@ void m68_move_reg_to_a5_indirect_byte(int reg)
     emit_short(opcode);
 }
 
-void m68_move_a5_indirect_word_to_reg(int reg)
+void m68_move_reg_to_a5_indirect_word(int reg)
 {
-    // move.l (a5),dY -> 20 15
-    int opcode = 0x2015 | (reg << 9);
+    // move.w dY,(a5) -> 3A 80
+    int opcode = 0x3A80 | reg;
+    emit_short(opcode);
+}
+
+void m68_move_reg_to_a5_indirect_long(int reg)
+{
+    // move.l dY,(a5) -> 2A 80
+    int opcode = 0x2A80 | reg;
     emit_short(opcode);
 }
 
@@ -1451,6 +1394,20 @@ void m68_move_a5_indirect_byte_to_reg(int reg)
 {
     // move.b (a5),dY -> 10 15
     int opcode = 0x1015 | (reg << 9);
+    emit_short(opcode);
+}
+
+void m68_move_a5_indirect_word_to_reg(int reg)
+{
+    // move.w (a5),dY -> 30 15
+    int opcode = 0x3015 | (reg << 9);
+    emit_short(opcode);
+}
+
+void m68_move_a5_indirect_long_to_reg(int reg)
+{
+    // move.l (a5),dY -> 20 15
+    int opcode = 0x2015 | (reg << 9);
     emit_short(opcode);
 }
 
@@ -1491,6 +1448,14 @@ void m68_sub_im_to_reg(int value, int dest)
 {
     // sub.l #1234,d0 -> 90 BC
     int opcode = 0x90BC | (dest << 9);
+    emit_short(opcode);
+    emit_word(value);
+}
+
+void m68_sub_im_to_stack(int value)
+{
+    // suba.l #XXXXXX,a7 -> 9F FC
+    int opcode = 0x9FFC;
     emit_short(opcode);
     emit_word(value);
 }
@@ -1618,6 +1583,11 @@ void emit_asm(code_t *code)
     emit_assembly(code, code->assembly);
 }
 
+void emit_alloc(code_t *code)
+{
+    m68_sub_im_to_stack(code->value);
+}
+
 void emit_load_value(code_t *code)
 {
     allocate_reg();
@@ -1714,7 +1684,7 @@ void emit_store_indirect_word(code_t *code)
     // move.l (sp)+,a5
     // move.l d0,(a5)  
     m68_move_reg_to_a5(_secondary_reg);
-    m68_move_reg_to_a5_indirect_word(_primary_reg);
+    m68_move_reg_to_a5_indirect_long(_primary_reg);
     free_reg(true);
     free_reg(true);
 }
@@ -1757,7 +1727,7 @@ void emit_deref_word(code_t *code)
     // move.l dY,a5
     // move.l (a5),dY
     m68_move_reg_to_a5(_primary_reg);
-    m68_move_a5_indirect_word_to_reg(_primary_reg);
+    m68_move_a5_indirect_long_to_reg(_primary_reg);
 }
 
 void emit_deref_byte(code_t *code)
@@ -1768,7 +1738,7 @@ void emit_deref_byte(code_t *code)
     // move.b (a5),dY
     m68_move_reg_to_a5(_primary_reg);
     m68_moveq_to_reg(0, _primary_reg);
-    m68_move_a5_indirect_word_to_reg(_primary_reg);
+    m68_move_a5_indirect_long_to_reg(_primary_reg);
 }
 
 void emit_call_setup(code_t *code)
@@ -2084,9 +2054,9 @@ void emit_inc(code_t *code)
     // move.l (sp)+,a5
     // addq.l #1,(a5)
     m68_move_reg_to_a5(_primary_reg);
-    m68_move_a5_indirect_word_to_reg(SCRATCH_REG);
+    m68_move_a5_indirect_long_to_reg(SCRATCH_REG);
     m68_add_im_to_reg(1, SCRATCH_REG);
-    m68_move_reg_to_a5_indirect_word(SCRATCH_REG);
+    m68_move_reg_to_a5_indirect_long(SCRATCH_REG);
 
     free_reg(true);    
 }
@@ -2096,11 +2066,69 @@ void emit_dec(code_t *code)
     // move.l (sp)+,a5
     // addq.l #1,(a5)
     m68_move_reg_to_a5(_primary_reg);
-    m68_move_a5_indirect_word_to_reg(SCRATCH_REG);
+    m68_move_a5_indirect_long_to_reg(SCRATCH_REG);
     m68_sub_im_to_reg(1, SCRATCH_REG);
-    m68_move_reg_to_a5_indirect_word(SCRATCH_REG);
+    m68_move_reg_to_a5_indirect_long(SCRATCH_REG);
 
     free_reg(true);    
+}
+
+void emit_peek8(code_t *code)
+{
+    assert(_primary_reg >= 0);
+    m68_move_reg_to_a5(_primary_reg);
+    m68_moveq_to_reg(0, RETURN_REG);
+    m68_move_a5_indirect_byte_to_reg(RETURN_REG);
+    free_reg(true);
+}
+
+void emit_peek16(code_t *code)
+{
+    assert(_primary_reg >= 0);
+    m68_move_reg_to_a5(_primary_reg);
+    m68_moveq_to_reg(0, RETURN_REG);
+    m68_move_a5_indirect_word_to_reg(RETURN_REG);
+    free_reg(true);
+}
+
+void emit_peek32(code_t *code)
+{
+    assert(_primary_reg >= 0);
+    m68_move_reg_to_a5(_primary_reg);
+    m68_move_a5_indirect_long_to_reg(RETURN_REG);
+    free_reg(true);
+}
+
+void emit_poke8(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+    m68_move_reg_to_a5(_secondary_reg);
+    m68_move_reg_to_a5_indirect_byte(_primary_reg);
+
+    free_reg(true);
+    free_reg(true);
+}
+
+void emit_poke16(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_move_reg_to_a5(_secondary_reg);
+    m68_move_reg_to_a5_indirect_word(_primary_reg);
+
+    free_reg(true);
+    free_reg(true);    
+}
+
+void emit_poke32(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+
+    m68_move_reg_to_a5(_secondary_reg);
+    m68_move_reg_to_a5_indirect_long(_primary_reg);
+
+    free_reg(true);
+    free_reg(true);
 }
 
 void emit_m68k_machine_code(void)
@@ -2119,6 +2147,9 @@ void emit_m68k_machine_code(void)
                 break;
             case OP_ASM:
                 emit_asm(it);
+                break;
+            case OP_ALLOC:
+                emit_alloc(it);
                 break;
             case OP_LOAD_VALUE:
                 emit_load_value(it);
@@ -2160,9 +2191,6 @@ void emit_m68k_machine_code(void)
                 break;
             case OP_STORE_INDIRECT_BYTE:
                 emit_store_indirect_byte(it);
-                break;
-            case OP_ALLOC:
-                emit_assembly(it, INST_ALLOC);
                 break;
             case OP_DEALLOC:
                 emit_assembly(it, INST_DEALLOC);
@@ -2281,9 +2309,35 @@ void emit_m68k_machine_code(void)
             case OP_DEC:
                 emit_dec(it);
                 break;
+            case OP_INIT:
+                emit_assembly(it, INST_INIT);
+                break;
+            case OP_PEEK8:
+                emit_peek8(it);
+                break;
+            case OP_PEEK16:
+                emit_peek16(it);
+                break;
+            case OP_PEEK32:
+                emit_peek32(it);
+                break;
+            case OP_POKE8:
+                emit_poke8(it);
+                break;
+            case OP_POKE16:
+                emit_poke16(it);
+                break;
+            case OP_POKE32:
+                emit_poke32(it);
+                break;
 
             default:
-                emit_assembly(it, _opcode_to_machine_code[it->opcode]);
+                {
+                    char buffer[32];
+                    snprintf(buffer, 32, "%d (%s)", it->opcode, _opcode_names[it->opcode]);
+                    internal_error("missing opcode", buffer);
+                }
+                
                 break;
         }
     }    
@@ -3753,14 +3807,17 @@ void factor(void)
     else if (_token == TOKEN_KEYWORD_PEEK8)
     {
         peek_statement(OP_PEEK8);
+        code_opcode(OP_FROM_RET);
     }
     else if (_token == TOKEN_KEYWORD_PEEK16)
     {
         peek_statement(OP_PEEK16);
+        code_opcode(OP_FROM_RET);
     }
     else if (_token == TOKEN_KEYWORD_PEEK32)
     {
         peek_statement(OP_PEEK32);
+        code_opcode(OP_FROM_RET);
     }
     else
     {

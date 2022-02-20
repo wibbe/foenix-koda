@@ -25,64 +25,55 @@ call :opcode max
 call :opcode mul32
 call :opcode div32
 call :opcode init
-call :opcode load_value
-call :opcode load_global_addr
-call :opcode load_local_addr
-call :opcode load_global
-call :opcode load_local
-call :opcode store_global
-call :opcode store_local
-call :opcode store_indirect_word
-call :opcode store_indirect_byte
-call :opcode alloc
+call :opcode enter
 call :opcode dealloc
 call :opcode local_vec
 call :opcode global_vec
-call :opcode halt
-call :opcode index_word
-call :opcode index_byte
-call :opcode deref_word
-call :opcode deref_byte
-call :opcode call
-call :opcode call_indirect
-call :opcode enter
 call :opcode exit
-call :opcode neg
-call :opcode inv
-call :opcode lognot
-call :opcode add
-call :opcode sub
-call :opcode mul
-call :opcode div
-call :opcode mod
-call :opcode and
-call :opcode or
-call :opcode xor
-call :opcode shift_left
-call :opcode shift_right
-call :opcode eq
-call :opcode not_eq
-call :opcode less
-call :opcode less_eq
-call :opcode greater
-call :opcode greater_eq
-call :opcode jump_fwd
-call :opcode jump_back
-call :opcode jump_true
-call :opcode jump_false
-call :opcode inc
-call :opcode dec
-call :opcode clear
-call :opcode drop
-call :opcode peek8
-call :opcode peek16
-call :opcode peek32
-call :opcode poke8
-call :opcode poke16
-call :opcode poke32
-call :opcode gfx_init
-call :opcode gfx_clear
-call :opcode gfx_swap
+
+rem call :opcode load_value
+rem call :opcode load_global_addr
+rem call :opcode load_local_addr
+rem call :opcode load_global
+rem call :opcode load_local
+rem call :opcode store_global
+rem call :opcode store_local
+rem call :opcode store_indirect_word
+rem call :opcode store_indirect_byte
+rem call :opcode halt
+rem call :opcode index_word
+rem call :opcode index_byte
+rem call :opcode deref_word
+rem call :opcode deref_byte
+rem call :opcode call
+rem call :opcode call_indirect
+rem call :opcode neg
+rem call :opcode inv
+rem call :opcode lognot
+rem call :opcode add
+rem call :opcode sub
+rem call :opcode mul
+rem call :opcode div
+rem call :opcode mod
+rem call :opcode and
+rem call :opcode or
+rem call :opcode xor
+rem call :opcode shift_left
+rem call :opcode shift_right
+rem call :opcode eq
+rem call :opcode not_eq
+rem call :opcode less
+rem call :opcode less_eq
+rem call :opcode greater
+rem call :opcode greater_eq
+rem call :opcode jump_fwd
+rem call :opcode jump_back
+rem call :opcode jump_true
+rem call :opcode jump_false
+rem call :opcode inc
+rem call :opcode dec
+rem call :opcode clear
+rem call :opcode drop
 
 echo compiling koda...
 gcc -o koda.exe -DPLATFORM_WIN -Isrc -Ibin\src src\koda.c src\standalone.c
