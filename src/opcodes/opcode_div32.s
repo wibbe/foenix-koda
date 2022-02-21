@@ -1,6 +1,10 @@
     org $0
 
+; Divide number in d1 by d0
 DIV32:
+    move.l  (4,sp),d1
+    move.l  (8,sp),d0
+
     move.l  d1,d2
     move.l  d1,d4
     eor.l   d0,d4           ; see if the signs are the same

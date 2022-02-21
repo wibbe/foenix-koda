@@ -3,6 +3,11 @@
 
 	org $0
 
+	adda.l #$12000008,a7
+	
+	movem.l d0/d1/d2/d3,-(sp)
+	movem.l (sp)+,d0/d1/d2/d3
+
 	lsr.l d0,d1
 	lsr.l d1,d1
 	lsr.l d1,d0

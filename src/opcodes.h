@@ -13,6 +13,7 @@ enum {
     OP_CLEAR,
     OP_TO_RET,
     OP_FROM_RET,
+    OP_FREE_REG,
     OP_STORE_GLOBAL,
     OP_STORE_GLOBAL_NP,
     OP_STORE_LOCAL,

@@ -126,6 +126,7 @@ char *_opcode_names[OP_COUNT] = {
     [OP_CLEAR] = "OP_CLEAR",
     [OP_TO_RET] = "OP_TO_RET",
     [OP_FROM_RET] = "OP_FROM_RET",
+    [OP_FREE_REG] = "OP_FREE_REG",
     [OP_STORE_GLOBAL] = "OP_STORE_GLOBAL",
     [OP_STORE_GLOBAL_NP] = "OP_STORE_GLOBAL_NP",
     [OP_STORE_LOCAL] = "OP_STORE_LOCAL",
@@ -195,6 +196,7 @@ int _opcode_arguments[OP_COUNT] = {
     [OP_CLEAR] = OP_ARG_NONE,
     [OP_TO_RET] = OP_ARG_NONE,
     [OP_FROM_RET] = OP_ARG_NONE,
+    [OP_FREE_REG] = OP_ARG_NONE,
     [OP_STORE_GLOBAL] = OP_ARG_ADDRESS,
     [OP_STORE_GLOBAL_NP] = OP_ARG_ADDRESS,
     [OP_STORE_LOCAL] = OP_ARG_VALUE_WORD,
@@ -1260,30 +1262,14 @@ void m68_pop_reg(int reg)
     emit_short(opcode);
 }
 
-void m68_push_multiple_regs(int start, int end)
+void m68_push_all_regs(void)
 {
-    // movem d0-d3,-(sp) -> 48 E7 F0 00 -> 0100 1000 1110 0111 , 1111 0000 0000 0000
-    int opcode = 0x48E7;
-    int regs = 0x0000;
-
-    for (int reg = start; reg <= end; ++reg)
-        regs |= (1 << (16 - reg));
-
-    emit_short(opcode);
-    emit_short(regs);
+    emit_word(0x48E7F000);
 }
 
-void m68_pop_multiple_regs(int start, int end)
+void m68_pop_all_regs(void)
 {
-    // movem.l (sp)+,d0-d3  -> 4C DF 00 0F
-    int opcode = 0x4CDF;
-    int regs = 0x0000;
-
-    for (int reg = start; reg <= end; ++reg)
-        regs |= 1 << reg;
-
-    emit_short(opcode);
-    emit_short(regs);
+    emit_word(0x4CDF000F);
 }
 
 void m68_move_im_to_reg(int value, int reg)
@@ -1459,6 +1445,13 @@ void m68_sub_im_to_stack(int value)
     emit_word(value);
 }
 
+void m68_add_im_to_stack(int value)
+{
+    int opcode = 0xDFFC;
+    emit_short(opcode);
+    emit_word(value);
+}
+
 void m68_shift_left_reg_to_reg(int source, int dest)
 {
     // lsl.l d0,d1 -> E1 A9
@@ -1603,6 +1596,11 @@ void emit_asm(code_t *code)
 void emit_alloc(code_t *code)
 {
     m68_sub_im_to_stack(code->value);
+}
+
+void emit_dealloc(code_t *code)
+{
+    m68_add_im_to_stack(code->value);
 }
 
 void emit_load_value(code_t *code)
@@ -1892,10 +1890,17 @@ void emit_mul(code_t *code)
 {
     assert(_primary_reg >= 0 && _secondary_reg >= 0);
 
-    m68_push_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_push_all_regs();
+
+    m68_push_reg(_secondary_reg);
+    m68_push_reg(_primary_reg);
     m68_jsr(_mul32_code->position);
+
+    // Deallocate arguments to div32 function
+    m68_add_im_to_stack(8);
+
     m68_move_reg_to_reg(0, SCRATCH_REG);
-    m68_pop_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_pop_all_regs();
     m68_move_reg_to_reg(SCRATCH_REG, _secondary_reg);
     free_reg(true);
 }
@@ -1904,10 +1909,17 @@ void emit_div(code_t *code)
 {
     assert(_primary_reg >= 0 && _secondary_reg >= 0);
 
-    m68_push_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_push_all_regs();
+
+    m68_push_reg(_secondary_reg);
+    m68_push_reg(_primary_reg);
     m68_jsr(_div32_code->position);
+
+    // Deallocate arguments to div32 function
+    m68_add_im_to_stack(8);
+
     m68_move_reg_to_reg(0, SCRATCH_REG);
-    m68_pop_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_pop_all_regs();
     m68_move_reg_to_reg(SCRATCH_REG, _secondary_reg);
     free_reg(true); 
 }
@@ -1916,10 +1928,17 @@ void emit_mod(code_t *code)
 {
     assert(_primary_reg >= 0 && _secondary_reg >= 0);
 
-    m68_push_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_push_all_regs();
+
+    m68_push_reg(_secondary_reg);
+    m68_push_reg(_primary_reg);
     m68_jsr(_div32_code->position);
+
+    // Deallocate arguments to div32 function
+    m68_add_im_to_stack(8);
+
     m68_move_reg_to_reg(1, SCRATCH_REG);
-    m68_pop_multiple_regs(0, NUMBER_OF_REGS - 1);
+    m68_pop_all_regs();
     m68_move_reg_to_reg(SCRATCH_REG, _secondary_reg);
     free_reg(true); 
 }
@@ -2162,6 +2181,11 @@ void emit_shift_right(code_t *code)
     free_reg(true);
 }
 
+void emit_free_reg(code_t *code)
+{
+    free_reg(false);
+}
+
 void emit_m68k_machine_code(void)
 {
     for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -2206,6 +2230,9 @@ void emit_m68k_machine_code(void)
             case OP_FROM_RET:
                 emit_from_ret(it);
                 break;
+            case OP_FREE_REG:
+                emit_free_reg(it);
+                break;
             case OP_HALT:
                 emit_halt(it);
                 break;
@@ -2224,7 +2251,7 @@ void emit_m68k_machine_code(void)
                 emit_store_indirect_byte(it);
                 break;
             case OP_DEALLOC:
-                emit_assembly(it, INST_DEALLOC);
+                emit_dealloc(it);
                 break;
             case OP_LOCAL_VEC:
                 emit_assembly(it, INST_LOCAL_VEC);
@@ -3945,6 +3972,7 @@ void expression(int clr)
         scan();
         code_t *false_jump = code_opcode(OP_JUMP_FALSE);
         expression(1);
+        code_opcode(OP_FREE_REG);
         expect(TOKEN_COLON, "':'");
         scan();
         code_t *fwd_jump = code_opcode(OP_JUMP_FWD);
