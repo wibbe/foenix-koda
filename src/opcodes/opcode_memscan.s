@@ -18,11 +18,11 @@ MEMSCAN:
 	bra .memscan_loop 			; loop back
 
 .memscan_found_byte:
-	move.l a1,d0 				; move iterator to return register
-	sub.l a0,d0					; subtract start position from iterator to get byte position
-	subq.l #1,d0 				; take into account that iterator as been moved to next char
+	move.l a1,d6 				; move iterator to return register
+	sub.l a0,d6					; subtract start position from iterator to get byte position
+	subq.l #1,d6 				; take into account that iterator as been moved to next char
 	rts
 
 .memscan_no_result:
-	move.l #-1,d0				; return negative value if byte was not found
+	move.l #-1,d6				; return negative value if byte was not found
 	rts

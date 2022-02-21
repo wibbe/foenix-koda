@@ -5,7 +5,6 @@ VICKY2_MCR_BITMAP_ON          	= $00000008
 VICKY2_MCR_DOUBLE_ON          	= $00000400
 
 
-GFX_BACK_BUFFER 			= $00100000
 GFX_BACK_BUFFER_SIZE		= 320*240
 GFX_BUFFER_STRIDE			= 320
 
@@ -19,16 +18,24 @@ endm
 	org $0
 
 library_header:
-	dc.w 			3
-	function "gfx_init", gfx_init, 0
+	dc.w 			5
+	function "gfx_init", gfx_init, 1
 	function "gfx_clear", gfx_clear, 0
 	function "gfx_swap", gfx_swap, 0
 	function "gfx_blit8", gfx_blit8, 3
+	function "gfx_backbuffer_size", gfx_backbuffer_size, 0
 	;function "gfx_blit16", gfx_blit16, 3
 
 	align 2
+gfx_back_buffer:
+	dc.l 	0
+
 
 gfx_init:
+	move.l (4,sp),d0			; pointer to back-buffer
+	lea gfx_back_buffer(pc),a0
+	move.l d0,(a0)
+
 	; Use 320x240 resolution with bitmap graphics on
 	move.l #(VICKY2_MCR_GRAPH_ON|VICKY2_MCR_BITMAP_ON|VICKY2_MCR_DOUBLE_ON),d7
 	move.l d7,VICKY2_MASTER_CONTROL_REG
@@ -41,10 +48,14 @@ gfx_init:
 	moveq #1,d7
 	move.l d7,$00B40100
 	rts
-	
+
+
+gfx_backbuffer_size:
+	move.l #GFX_BACK_BUFFER_SIZE,d6
+	rts
 
 gfx_clear:
-	move.l #GFX_BACK_BUFFER,a0
+	lea gfx_back_buffer(pc),a0
 	move.l #(GFX_BACK_BUFFER_SIZE/4),d0
 .loop:
 	move.l #0,(a0)+
@@ -53,7 +64,7 @@ gfx_clear:
 
 
 gfx_swap:
-	move.l #GFX_BACK_BUFFER,a0
+	lea gfx_back_buffer(pc),a0
 	move.l #(GFX_BACK_BUFFER_SIZE/4),d0
 	move.l #$AAAA,a1
 .loop:
@@ -64,9 +75,9 @@ gfx_swap:
 
 ; Blit a 8x8 image to the back-buffer
 gfx_blit8:
-	move.l (sp)+,a0 		; pointer to image data
-	move.l (sp)+,d1 		; y-coordinate
-	move.l (sp)+,d0 		; x-coordinate
+	move.l (4,sp),a0 		; pointer to image data
+	move.l (8,sp),d1 		; y-coordinate
+	move.l (12,sp),d0 		; x-coordinate
 
 	move.l d0,d2
 	and.l #$03,d2
@@ -107,7 +118,8 @@ gfx_start_address:
 	lsl.l #8,d2					; multiply by 256
 	lsl.l #4,d3					; multiply by 64
 	add.l d3,d2 				; add them together
-	add.l #GFX_BACK_BUFFER,d2	; add base address
+	lea gfx_back_buffer(pc),a0
+	add.l (a0),d2				; add base address
 	add.l d0,d2 				; add x-coordinate
 	move.l d2,a1				; store result in a1
 	rts

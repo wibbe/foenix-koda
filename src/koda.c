@@ -520,10 +520,9 @@ void print_code(code_t *code)
 
         case OP_LOAD_LOCAL_ADDR:
         case OP_LOAD_GLOBAL:
-        //case OP_LDGLOBAL_STACK:
         case OP_LOAD_LOCAL:
-        //case OP_LDLOCAL_STACK:
         case OP_STORE_GLOBAL:
+        case OP_STORE_GLOBAL_NP:
         case OP_STORE_LOCAL:
         case OP_GLOBAL_VEC:
             if (code->symbol != NULL)
@@ -1460,6 +1459,24 @@ void m68_sub_im_to_stack(int value)
     emit_word(value);
 }
 
+void m68_shift_left_reg_to_reg(int source, int dest)
+{
+    // lsl.l d0,d1 -> E1 A9
+    // lsl.l d1,d1 -> E3 A9
+    // lsl.l d1,d0 -> E3 A8
+    int opcode = 0xE1A8 | (source << 9) | dest;
+    emit_short(opcode);
+}
+
+void m68_shift_right_reg_to_reg(int source, int dest)
+{
+    // lsr.l d0,d1 -> E0 A9
+    // lsr.l d1,d1 -> E2 A9
+    // lsr.l d1,d0 -> E2 A8
+    int opcode = 0xE0A8 | (source << 9) | dest;
+    emit_short(opcode);
+}
+
 void m68_and_reg_to_reg(int source, int dest)
 {
     // and.l d0,d1 -> C2 80
@@ -2003,7 +2020,7 @@ void emit_less(code_t *code)
     m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
     m68_moveq_to_reg(0, _secondary_reg);
     m68_cmp_reg_to_reg(SCRATCH_REG, _primary_reg);
-    m68_branch(M68_BRANCH_GREATER_EQUAL, 2);
+    m68_branch(M68_BRANCH_LESS_EQUAL, 2);
     m68_moveq_to_reg(0xFF, _secondary_reg);
 
     free_reg(true);    
@@ -2016,7 +2033,7 @@ void emit_less_equal(code_t *code)
     m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
     m68_moveq_to_reg(0, _secondary_reg);
     m68_cmp_reg_to_reg(SCRATCH_REG, _primary_reg);
-    m68_branch(M68_BRANCH_GREATER, 2);
+    m68_branch(M68_BRANCH_LESS, 2);
     m68_moveq_to_reg(0xFF, _secondary_reg);
 
     free_reg(true);    
@@ -2029,7 +2046,7 @@ void emit_greater(code_t *code)
     m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
     m68_moveq_to_reg(0, _secondary_reg);
     m68_cmp_reg_to_reg(SCRATCH_REG, _primary_reg);
-    m68_branch(M68_BRANCH_LESS_EQUAL, 2);
+    m68_branch(M68_BRANCH_GREATER_EQUAL, 2);
     m68_moveq_to_reg(0xFF, _secondary_reg);
 
     free_reg(true);    
@@ -2042,7 +2059,7 @@ void emit_greater_equal(code_t *code)
     m68_move_reg_to_reg(_secondary_reg, SCRATCH_REG);
     m68_moveq_to_reg(0, _secondary_reg);
     m68_cmp_reg_to_reg(SCRATCH_REG, _primary_reg);
-    m68_branch(M68_BRANCH_LESS, 2);
+    m68_branch(M68_BRANCH_GREATER, 2);
     m68_moveq_to_reg(0xFF, _secondary_reg);
 
     free_reg(true);    
@@ -2128,6 +2145,20 @@ void emit_poke32(code_t *code)
     m68_move_reg_to_a5_indirect_long(_primary_reg);
 
     free_reg(true);
+    free_reg(true);
+}
+
+void emit_shift_left(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+    m68_shift_left_reg_to_reg(_primary_reg, _secondary_reg);
+    free_reg(true);
+}
+
+void emit_shift_right(code_t *code)
+{
+    assert(_primary_reg >= 0 && _secondary_reg >= 0);
+    m68_shift_right_reg_to_reg(_primary_reg, _secondary_reg);
     free_reg(true);
 }
 
@@ -2268,8 +2299,9 @@ void emit_m68k_machine_code(void)
             //     break;
             // case OP_SHIFT_LEFT:
             //     break;
-            // case OP_SHIFT_RIGHT:
-            //     break;
+            case OP_SHIFT_RIGHT:
+                emit_shift_right(it);
+                break;
             case OP_EQ:
                 emit_eq(it);
                 break;
@@ -2294,10 +2326,10 @@ void emit_m68k_machine_code(void)
             case OP_JUMP_BACK:
                 emit_jump_back(it);
                 break;
-            case OP_JUMP_FALSE:
+            case OP_JUMP_TRUE:
                 emit_jump_true(it);
                 break;
-            case OP_JUMP_TRUE:
+            case OP_JUMP_FALSE:
                 emit_jump_false(it);
                 break;
             case OP_JUMP_TARGET:

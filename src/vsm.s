@@ -3,6 +3,14 @@
 
 	org $0
 
+	lsr.l d0,d1
+	lsr.l d1,d1
+	lsr.l d1,d0
+
+	lsl.l d0,d1
+	lsl.l d1,d1
+	lsl.l d1,d0
+
 	move.w d0,(a5)
 
 	move.w (a5),d0
