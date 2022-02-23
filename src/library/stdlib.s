@@ -44,6 +44,9 @@ library_header:
 
     function "min", min, 2
     function "max", max, 2
+
+    function "heap_reset", heap_reset, 0
+    function "heap_alloc", heap_alloc, 1
     
     function "__mul32", mul32s, 0
     function "__div32", div32s, 0
@@ -412,13 +415,29 @@ heap_alloc:
     lea     __heap_ptr(pc),a0
     lea     __heap_end(pc),a1
 
-    ; Divide size by 4, add 1 and multiply by 4 to get the word aligned size
-
     move.l  (a0),d7             ; result pointer
+
+    ; Divide size by 4, add 1 and multiply by 4 to get the word aligned size
+    ; size = ((size >> 2) + 1) << 2
+    lsr.l   #2,d0               ; divide by 4
+    addq.l  #1,d0               ; add 1
+    lsl.l   #2,d0               ; multiply by two
+
+    ; Calculate size of heap (__heap_end - __heap_ptr)
+    move.l  (a1),d1             ; get end of heap
+    sub.l   d7,d1
+
+    ; Make sure we have room on the heap
+    cmp.l   d0,d1               ; compare requested size vs actual size
+    blt     .no_room_on_heap
 
     ; Add size bytes to __heap_ptr
     add.l   d7,d0
     move.l  d0,(a0)
+    rts
+
+.no_room_on_heap:
+    moveq   #0,d7               ; return null pointer if we can't allocate
     rts
 
 
