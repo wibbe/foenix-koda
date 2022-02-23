@@ -70,8 +70,6 @@ enum {
     OP_ASM,                 // We have a blob of assembly code
     OP_LIB,
     OP_JUMP_TARGET,
-    OP_ALLOC_MEM,
-    OP_WRITE_32,
 
     OP_COUNT,
 };

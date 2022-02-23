@@ -1,4 +1,6 @@
 
+	include "library.s"
+
 VICKY2_MASTER_CONTROL_REG 		= $00B40000
 VICKY2_MCR_GRAPH_ON				= $00000004
 VICKY2_MCR_BITMAP_ON          	= $00000008
@@ -8,23 +10,21 @@ VICKY2_MCR_DOUBLE_ON          	= $00000400
 GFX_BACK_BUFFER_SIZE		= 320*240
 GFX_BUFFER_STRIDE			= 320
 
-function: macro
-	dc.l 	\2
-	dc.b 	\3
-	dc.b 	\1,0
-endm
-
-
 	org $0
 
 library_header:
-	dc.w 			5
+	; Constants supplied by the library
+	const "GFX_BACKBUFFER_SIZE", GFX_BACK_BUFFER_SIZE
+
+	; Functions supplied by the library
 	function "gfx_init", gfx_init, 1
 	function "gfx_clear", gfx_clear, 0
 	function "gfx_swap", gfx_swap, 0
 	function "gfx_blit8", gfx_blit8, 3
-	function "gfx_backbuffer_size", gfx_backbuffer_size, 0
 	;function "gfx_blit16", gfx_blit16, 3
+
+    ; Signal header end
+    dc.b    $00
 
 	align 2
 gfx_back_buffer:
@@ -37,22 +37,18 @@ gfx_init:
 	move.l d0,(a0)
 
 	; Use 320x240 resolution with bitmap graphics on
-	move.l #(VICKY2_MCR_GRAPH_ON|VICKY2_MCR_BITMAP_ON|VICKY2_MCR_DOUBLE_ON),d7
-	move.l d7,VICKY2_MASTER_CONTROL_REG
+	move.l #(VICKY2_MCR_GRAPH_ON|VICKY2_MCR_BITMAP_ON|VICKY2_MCR_DOUBLE_ON),d6
+	move.l d6,VICKY2_MASTER_CONTROL_REG
 
-	moveq #0,d7
-	move.l d7,$00B40104		; Setup bitmap 0 address to zero (start of vram)
-	move.l d7,$00B40008		; Turn off borders
+	moveq #0,d6
+	move.l d6,$00B40104		; Setup bitmap 0 address to zero (start of vram)
+	move.l d6,$00B40008		; Turn off borders
 
 	; Enable bitmap 0
-	moveq #1,d7
-	move.l d7,$00B40100
+	moveq #1,d6
+	move.l d6,$00B40100
 	rts
 
-
-gfx_backbuffer_size:
-	move.l #GFX_BACK_BUFFER_SIZE,d6
-	rts
 
 gfx_clear:
 	lea gfx_back_buffer(pc),a0

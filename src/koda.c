@@ -39,12 +39,11 @@ enum {
 
     TOKEN_LEN               = 128,
 
-    SCRATCH_REG             = 7,
-    RETURN_REG              = 6,
+    SCRATCH_REG             = 6,
+    RETURN_REG              = 7,
     NUMBER_OF_REGS          = 4,
     REGISTER_SAVE_STACK     = 32,
 
-    HEAP_START              = 0x00060000,
     HEAP_END                = 0x00100000,
     INITIAL_STACK_SIZE      = 0x40000,          // Reserve space for a 256k stack
 };
@@ -182,8 +181,6 @@ char *_opcode_names[OP_COUNT] = {
     [OP_POKE32] = "OP_POKE32",
     [OP_ASM] = "OP_ASM",
     [OP_JUMP_TARGET] = "OP_JUMP_TARGET",
-    [OP_ALLOC_MEM] = "OP_ALLOC_MEM",
-    [OP_WRITE_32] = "OP_WRITE_32",
 };
 
 int _opcode_arguments[OP_COUNT] = {
@@ -307,19 +304,24 @@ int _start_location = 0;
 
 int _accumulator_loaded = 0;
 
+int _heap_start = 0;
+
 char *_string_table;
 int _string_table_ptr = 0;
 
 symbol_t *_symbol_table;
 int _symbol_table_ptr = 0;
 
+// Pointer to special functions on the standard library
+symbol_t *_stdlib_init_func = NULL;
+symbol_t *_mul32_func = NULL;
+symbol_t *_div32_func = NULL;
+
 bool _parsing_function = false;
 
 code_t *_code_start = NULL;
 code_t *_current_code = NULL;
 
-code_t *_mul32_code = NULL;
-code_t *_div32_code = NULL;
 
 code_t *_loop0 = NULL;
 code_t *_leaves[MAXLOOP];
@@ -339,9 +341,6 @@ int _save_reg_ptr = 0;
 
 koda_compiler_options_t *_options = NULL;
 
-
-int _div32_routine_address;
-int _mul32_routine_address;
 
 
 #define compiler_error(message, extra) \
@@ -505,8 +504,6 @@ void print_code(code_t *code)
             printf("%s'%s'\n", buffer, code->assembly);
             break;
 
-        case OP_WRITE_32:
-        case OP_ALLOC_MEM:
         case OP_FUNC_START:
             printf("%s:\n", code->symbol->name);
             printf("%s%d\n", buffer, code->value);
@@ -690,18 +687,6 @@ void optimize_remove_dead_code(void)
         }
     }
 
-    // Special pass to handle mul32 and div32 asm code
-    for (code_t *it = _code_start; it != NULL; it = it->next)
-    {
-        if (it->used)
-        {
-            if (it->opcode == OP_MUL)
-                _mul32_code->used = true;
-            else if (it->opcode == OP_DIV || it->opcode == OP_MOD)
-                _div32_code->used = true;
-        }
-    }
-
     // Special pass to handle OP_FUNC_END in used functions
     bool func_in_use = false;
     for (code_t *it = _code_start; it != NULL; it = it->next)
@@ -764,6 +749,8 @@ void optimize_jumps(void)
         }
         else if (it->opcode == OP_JUMP_FWD && it->next->opcode == OP_JUMP_TARGET)
         {   
+            // TODO: This optimization does not seem to work
+
             // Do we have a jump to the next instruction?
             if (it->code == it->next)
             {
@@ -906,17 +893,6 @@ void mark_used_symbols(void)
 
             case OP_CALL:
                 it->symbol->used = true;
-                break;
-
-            case OP_MUL:
-                _mul32_code->symbol->used = true;
-                it->symbol = _mul32_code->symbol;
-                break;
-
-            case OP_DIV:
-            case OP_MOD:
-                _div32_code->symbol->used = true;
-                it->symbol = _div32_code->symbol;
                 break;
         }
     }
@@ -1574,18 +1550,6 @@ int m68_branch(int type, int offset)
     }
 }
 
-void emit_write32(code_t *code)
-{
-    code->symbol->value = _text_buffer_ptr + _options->text_start_address;
-    emit_word(code->value);
-}
-
-void emit_alloc_mem(code_t *code)
-{
-    code->symbol->value = _text_buffer_ptr + _options->text_start_address;
-    emit_allocate(code->value);
-}
-
 void emit_asm(code_t *code)
 {
     if (code->symbol != NULL)
@@ -1894,7 +1858,7 @@ void emit_mul(code_t *code)
 
     m68_push_reg(_secondary_reg);
     m68_push_reg(_primary_reg);
-    m68_jsr(_mul32_code->position);
+    m68_jsr(_mul32_func->value);
 
     // Deallocate arguments to div32 function
     m68_add_im_to_stack(8);
@@ -1913,7 +1877,7 @@ void emit_div(code_t *code)
 
     m68_push_reg(_secondary_reg);
     m68_push_reg(_primary_reg);
-    m68_jsr(_div32_code->position);
+    m68_jsr(_div32_func->value);
 
     // Deallocate arguments to div32 function
     m68_add_im_to_stack(8);
@@ -1932,7 +1896,7 @@ void emit_mod(code_t *code)
 
     m68_push_reg(_secondary_reg);
     m68_push_reg(_primary_reg);
-    m68_jsr(_div32_code->position);
+    m68_jsr(_div32_func->value);
 
     // Deallocate arguments to div32 function
     m68_add_im_to_stack(8);
@@ -2194,12 +2158,6 @@ void emit_m68k_machine_code(void)
 
         switch (it->opcode)
         {
-            case OP_WRITE_32:
-                emit_write32(it);
-                break;
-            case OP_ALLOC_MEM:
-                emit_alloc_mem(it);
-                break;
             case OP_ASM:
                 emit_asm(it);
                 break;
@@ -2442,16 +2400,6 @@ void emit_bytecode(int *bytecode)
 
         switch (it->opcode)
         {
-            case OP_WRITE_32:
-                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                _text_buffer_ptr += 1;
-                break;
-
-            case OP_ALLOC_MEM:
-                it->symbol->value = _text_buffer_ptr + _options->text_start_address;
-                _text_buffer_ptr += ((it->value / 4) + 1) * 4;
-                break;
-
             case OP_FUNC_START:
                 it->symbol->value = _text_buffer_ptr + _options->text_start_address;
                 emit_opcode(bytecode, OP_FUNC_START);
@@ -4361,7 +4309,82 @@ void embed_data_files(void)
     }
 }
 
-void include_library(char *filename)
+void include_library(int start, char *name)
+{
+    // Read all entries in the library
+    int it = start;
+    while (it < _text_lib_buffer_ptr)
+    {
+        int type = _text_lib_buffer[it++];
+
+        if (type == 0x01)
+        {
+            // Read constant
+            int constant_value = (_text_lib_buffer[it] << 24) | (_text_lib_buffer[it + 1] << 16) | (_text_lib_buffer[it + 2] << 8) | _text_lib_buffer[it + 3];
+            it += 4;
+
+            char *constant_name = _text_lib_buffer + it;
+            it += strlen(constant_name) + 1;
+
+            add(constant_name, SYM_CONST, constant_value);            
+            //printf("Found library constant '%s' = %d\n", constant_name, constant_value);
+        }
+        else if (type == 0x02)
+        {
+            // Read function
+            int func_offset = (_text_lib_buffer[it] << 24) | (_text_lib_buffer[it + 1] << 16) | (_text_lib_buffer[it + 2] << 8) | _text_lib_buffer[it + 3];
+            int func_address = _options->text_lib_start_address + start + func_offset;
+            
+            it += 4;
+
+            int func_arity = _text_lib_buffer[it];
+            it += 1;
+
+            char *func_name = _text_lib_buffer + it;
+            it += strlen(func_name) + 1;
+
+            symbol_t *sym = add(func_name, SYM_GLOBF | SYM_FUNCTION | (func_arity << 8), func_address);
+            sym->used = true;
+
+            //printf("Found library function %s(%d) -> %06X (%d)\n", func_name, func_arity, func_address, func_offset);
+        }
+        else if (type == 0x00)
+        {
+            break;
+        }
+        else
+        {
+            internal_error("Unknown library entry type in library", name);
+        }
+    }
+
+    if (it >= _text_lib_buffer_ptr)
+        internal_error("Missing header end in library", name);
+}
+
+void load_stdlib(void)
+{
+    int start = _text_lib_buffer_ptr;
+
+    memcpy(_text_lib_buffer + _text_lib_buffer_ptr, foenix_stdlib_data, foenix_stdlib_len);
+    _text_lib_buffer_ptr += foenix_stdlib_len;
+
+    include_library(start, "stdlib");
+
+    // Here we need to find the __stdlib_init, __div32 and __mul32 functions
+    _div32_func = find("__div32");
+    _mul32_func = find("__mul32");
+    _stdlib_init_func = find("__stdlib_init");
+
+    if (_div32_func == NULL)
+        internal_error("Could not locate the __div32 function in stdlib", NULL);
+    if (_mul32_func == NULL)
+        internal_error("Could not locate the __mul32 function in stdlib", NULL);
+    if (_stdlib_init_func == NULL)
+        internal_error("Could not locate the __stdlib_init function in stdlib", NULL);
+}
+
+void load_library(char *filename)
 {
     int start = _text_lib_buffer_ptr;
 
@@ -4379,30 +4402,15 @@ void include_library(char *filename)
         compiler_error("text segment exhausted, library too large", filename);
 #endif
 
-    // Function count
-    int function_count = _text_lib_buffer[start] << 8 | _text_lib_buffer[start + 1];
-
-    int it = start + 2;
-    for (int i = 0; i < function_count; ++i)
-    {
-        int func_offset = (_text_lib_buffer[it] << 24) | (_text_lib_buffer[it + 1] << 16) | (_text_lib_buffer[it + 2] << 8) | _text_lib_buffer[it + 3];
-        it += 4;
-
-        int func_arity = _text_lib_buffer[it];
-        it += 1;
-
-        char *func_name = _text_lib_buffer + it;
-        it += strlen(func_name) + 1;
-
-        add(func_name, SYM_GLOBF | SYM_FUNCTION | (func_arity << 8), _options->text_lib_start_address + start + func_offset);
-    }
+    include_library(start, filename);
 }
+
 
 void include_libraries(void)
 {
     for (int i = 0; i < _options->libraries_count; ++i)
     {
-        include_library(_options->libraries[i]);
+        load_library(_options->libraries[i]);
     }
 }
 
@@ -4413,31 +4421,24 @@ void include_libraries(void)
 
 void init(void)
 {
-    _text_buffer_ptr = 0;
-    _text_lib_buffer_ptr = 0;
-    _data_buffer_ptr = 0;
-    _symbol_table_ptr = 0;
+    // Calculate where our heap starts
+    _heap_start = _options->text_lib_start_address + _options->text_lib_size;
 
     _code_start = alloc_code();
     _current_code = _code_start;
     _current_code->opcode = OP_INIT;
     _current_code->value = HEAP_END;
+
+    // Call to __stdlib_init to initialize the standard library
+    code_opcode_value(OP_LOAD_VALUE, _heap_start);
+    code_opcode_value(OP_LOAD_VALUE, HEAP_END - INITIAL_STACK_SIZE),
+    code_opcode(OP_CALL_SETUP);
+    code_symbol(OP_CALL, _stdlib_init_func);
+    code_opcode_value(OP_DEALLOC, 2 * BPW);
+    code_opcode_value(OP_CALL_CLEANUP, 2);
+
     code_t *jmp = code_opcode(OP_JUMP_FWD);
     
-    // Special variables used by the standard library
-    symbol_t *sym = add("__heap_ptr", SYM_GLOBF, 0);
-    sym->code = code_symbol_value(OP_WRITE_32, sym, HEAP_START);
-
-    sym = add("__buffer", SYM_GLOBF, 0);
-    sym->code = code_symbol_value(OP_ALLOC_MEM, sym, 32);
-
-    // Add special math routines
-    symbol_t *mul32 = add("__mul32", SYM_GLOBF, 0);
-    _mul32_code = code_asm(mul32, INST_MUL32);
-
-    symbol_t *div32 = add("__div32", SYM_GLOBF, 0);
-    _div32_code = code_asm(div32, INST_DIV32);
-
     resolve_jump(jmp, code_opcode(OP_JUMP_TARGET));
 
     find_operator("="); _equal_op = _token_op_id;
@@ -4447,19 +4448,19 @@ void init(void)
     find_operator("/"); _div_op = _token_op_id;
     find_operator("%"); _mod_op = _token_op_id;
 
-    builtin("syscall0", 1, INST_SYSCALL0);
-    builtin("syscall1", 2, INST_SYSCALL1);
-    builtin("syscall2", 3, INST_SYSCALL2);
-    builtin("syscall3", 4, INST_SYSCALL3);
-    builtin("memscan", 3, INST_MEMSCAN);
-    builtin("memcopy", 3, INST_MEMCOPY);
-    builtin("memset", 3, INST_MEMSET);
-    builtin("min", 2, INST_MIN);
-    builtin("max", 2, INST_MAX);
+    //builtin("syscall0", 1, INST_SYSCALL0);
+    //builtin("syscall1", 2, INST_SYSCALL1);
+    //builtin("syscall2", 3, INST_SYSCALL2);
+    //builtin("syscall3", 4, INST_SYSCALL3);
+    //builtin("memscan", 3, INST_MEMSCAN);
+    //builtin("memcopy", 3, INST_MEMCOPY);
+    //builtin("memset", 3, INST_MEMSET);
+    //builtin("min", 2, INST_MIN);
+    //builtin("max", 2, INST_MAX);
 
     add("true", SYM_CONST, -1);
     add("false", SYM_CONST, 0);
-    add("HEAP_START", SYM_CONST, HEAP_START);
+    add("HEAP_START", SYM_CONST, _heap_start);
     add("HEAP_END", SYM_CONST, HEAP_END - INITIAL_STACK_SIZE);
     add("BYTE", SYM_CONST, 1);
     add("WORD", SYM_CONST, 4);
@@ -4484,20 +4485,26 @@ int koda_compile(koda_compiler_options_t *options)
     _data_buffer = heap_alloc(_options->data_size);
     _string_table = heap_alloc(STRING_TABLE_SIZE);
     _symbol_table = heap_alloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
-#endif   
+#endif
 
-    init();
+    _symbol_table_ptr = 0;
+    _text_buffer_ptr = 0;
+    _text_lib_buffer_ptr = 0;
+    _data_buffer_ptr = 0;
+    _string_table_ptr = 0;
 
-    // TODO: Use long jump here so we can have the koda_compile(...) function return on error, instead of exiting the program.
-    if (_options->embed_files_count > 0)
-        embed_data_files();
+
+    load_stdlib();
 
     if (_options->libraries_count > 0)
         include_libraries();
 
-    // Compile stdlib
-    read_stdlib_source();
-    program();
+    if (_options->embed_files_count > 0)
+        embed_data_files();
+
+    init();
+
+    // TODO: Use long jump here so we can have the koda_compile(...) function return on error, instead of exiting the program.
 
     // Compile all input files
     for (int i = 0; i < options->input_files_count; ++i)
@@ -4552,7 +4559,8 @@ int koda_compile(koda_compiler_options_t *options)
 
 #if PLATFORM_WIN
         printf("\nSTATISTICS:\n");
-        printf("          Code usage: %d / %dkb\n", _text_buffer_ptr / 1024, _options->text_size / 1024);
+        printf("          Code usage: %d / %dkb\n", (_text_buffer_ptr / 1024) + 1, _options->text_size / 1024);
+        printf("           Lib usage: %d / %dkb\n", (_text_lib_buffer_ptr / 1024) + 1, _options->text_lib_size / 1024);
         printf("          Data usage: %d / %dkb\n", _data_buffer_ptr / 1024, _options->data_size / 1024);
         printf("  Symbol table usage: %d / %d\n", _symbol_table_ptr, SYMBOL_TABLE_SIZE);
         printf("  String table usage: %d / %d\n", _string_table_ptr, STRING_TABLE_SIZE);
@@ -4597,16 +4605,21 @@ int koda_compile_to_bytecode(koda_compiler_options_t *options, const char *name,
     _data_buffer = malloc(_options->data_size);
     _string_table = malloc(STRING_TABLE_SIZE);
     _symbol_table = malloc(sizeof(symbol_t) * SYMBOL_TABLE_SIZE);
+
     _symbol_table_ptr = 0;
     _text_buffer_ptr = 0;
+    _text_lib_buffer_ptr = 0;
     _data_buffer_ptr = 0;
     _string_table_ptr = 0;
 
+
+
+    load_stdlib();
     init();   
     
     // Compile stdlib
-    read_stdlib_source();
-    program();
+    // read_stdlib_source();
+    // program();
 
     read_input_string(name, code_string);
     program();
